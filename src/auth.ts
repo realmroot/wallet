@@ -16,7 +16,7 @@ interface TokenResponse {
 }
 
 const prefix = 'agent-wallet.'
-let callbackExchange: Promise<void> | null = null
+let callbackExchange: Promise<string> | null = null
 
 export async function loadConfig(): Promise<PublicConfig> {
   const response = await walletApi.config.$get()
@@ -93,7 +93,7 @@ async function exchangeAuthorizationCode(config: PublicConfig) {
   sessionStorage.removeItem(`${prefix}verifier`)
   const returnTo = sessionStorage.getItem(`${prefix}return_to`) ?? '/'
   sessionStorage.removeItem(`${prefix}return_to`)
-  history.replaceState({}, '', returnTo)
+  return returnTo
 }
 
 export async function refreshAccessToken(config: PublicConfig) {

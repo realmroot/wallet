@@ -145,3 +145,42 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect.poll(() => updatedGrant?.allowedOrigins).toEqual(['https://merchant.test'])
   await expect(page.getByRole('dialog')).not.toBeVisible()
 })
+
+test('validates and approves an Agent budget request', async ({ page }) => {
+  let decision: Record<string, unknown> | null = null
+  await page.route('**/api/budget-requests/request-1/inspect', async (route) => {
+    expect(await route.request().postDataJSON()).toEqual({ approvalToken: 'a'.repeat(32) })
+    await route.fulfill({
+      json: {
+        id: 'request-1',
+        status: 'pending',
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+        grantId: null,
+        agentIssuer: 'https://fa.test/api/auth',
+        agentSubject: 'agent-budget-request',
+        requestedName: 'Budget Agent',
+      },
+    })
+  })
+  await page.route('**/api/budget-requests/request-1/decision', async (route) => {
+    decision = await route.request().postDataJSON()
+    await route.fulfill({ json: { status: 'approved', grantId: 'grant-2' } })
+  })
+
+  await page.goto(`/authorize#request=request-1&token=${'a'.repeat(32)}`)
+  await expect(page.getByRole('heading', { name: 'Allow this Agent to spend?' })).toBeVisible()
+  await expect(page.getByText('agent-budget-request')).toBeVisible()
+
+  await page.getByLabel('Allowed recipient addresses').fill('not-an-address')
+  await page.getByRole('button', { name: 'Authorize budget' }).click()
+  await expect(page.getByText('Invalid recipient address: not-an-address')).toBeVisible()
+  expect(decision).toBeNull()
+
+  await page.getByLabel('Allowed recipient addresses').fill(
+    '0x2222222222222222222222222222222222222222',
+  )
+  await page.getByRole('button', { name: 'Authorize budget' }).click()
+  await expect.poll(() => decision?.decision).toBe('approve')
+  await expect.poll(() => decision?.totalLimit).toBe('10000000')
+  await expect(page.getByRole('heading', { name: 'The Agent can now use its budget.' })).toBeVisible()
+})
