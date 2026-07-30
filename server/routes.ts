@@ -8,6 +8,7 @@ import {
   settlementResponseSchema,
   settlementResultSchema,
 } from '../shared/contracts'
+import { agentOperations } from './agent-policy'
 import { createRoute, z } from '@hono/zod-openapi'
 
 const json = <T extends z.ZodType>(schema: T) => ({
@@ -93,7 +94,7 @@ const idempotencyHeadersSchema = z.object({
 export const createBudgetRequestRoute = createRoute({
   method: 'post',
   path: '/agent/budget-requests',
-  operationId: 'createBudgetRequest',
+  operationId: agentOperations.createBudgetRequest.operationId,
   tags: ['budget'],
   'x-cli-name': 'request',
   security: [{ DPoP: [] }],
@@ -133,7 +134,7 @@ export const createBudgetRequestRoute = createRoute({
 export const getAgentWalletRoute = createRoute({
   method: 'get',
   path: '/agent/wallet',
-  operationId: 'getAgentWallet',
+  operationId: agentOperations.getWallet.operationId,
   tags: ['wallet'],
   'x-cli-name': 'show',
   security: [{ DPoP: [] }],
@@ -154,7 +155,7 @@ export const getAgentWalletRoute = createRoute({
 export const confirmPaymentSettlementRoute = createRoute({
   method: 'put',
   path: '/x402/payments/{paymentId}/settlement',
-  operationId: 'confirmPaymentSettlement',
+  operationId: agentOperations.confirmPaymentSettlement.operationId,
   tags: ['payment'],
   'x-cli-name': 'confirm',
   security: [{ DPoP: [] }],
@@ -186,7 +187,7 @@ export const confirmPaymentSettlementRoute = createRoute({
 export const getBudgetRequestRoute = createRoute({
   method: 'get',
   path: '/agent/budget-requests/{requestId}',
-  operationId: 'getBudgetRequest',
+  operationId: agentOperations.getBudgetRequest.operationId,
   tags: ['budget'],
   'x-cli-name': 'status',
   security: [{ DPoP: [] }],
@@ -211,7 +212,7 @@ export const getBudgetRequestRoute = createRoute({
 export const createPaymentAuthorizationRoute = createRoute({
   method: 'post',
   path: '/x402/payments',
-  operationId: 'createPaymentAuthorization',
+  operationId: agentOperations.createPaymentAuthorization.operationId,
   tags: ['payment'],
   'x-cli-name': 'authorize',
   security: [{ DPoP: [] }],

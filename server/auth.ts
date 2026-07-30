@@ -1,4 +1,5 @@
 import { forbidden, unauthorized } from './errors'
+import { requireAgentOperationPolicy, type AgentOperationId } from './agent-policy'
 import {
   calculateJwkThumbprint,
   createLocalJWKSet,
@@ -68,8 +69,9 @@ export async function authenticateHuman(request: Request, env: Env, requiredScop
 export async function authenticateAgent(
   request: Request,
   env: Env,
-  requiredScope: string,
+  operationId: AgentOperationId,
 ): Promise<AgentPrincipal> {
+  const { scope: requiredScope } = requireAgentOperationPolicy(operationId)
   const rawToken = bearer(request, 'DPoP')
   const jwks = await keySet(env)
   const { payload, protectedHeader } = await jwtVerify(rawToken, jwks, {
