@@ -1,6 +1,7 @@
 import type { AgentGrant, WalletOverview as WalletOverviewData } from '../../../shared/contracts'
 import { actOnGrant, actOnWallet, requestFaucet, revokeGrant } from '../../api'
 import type { PublicConfig } from '../../auth'
+import { ProvisionWallet } from '../../cdp'
 import { delegationNeedsRenewal, eventLabel, formatToken, formatUsdc } from '../../lib/format'
 import {
   ArrowUpRight,
@@ -17,11 +18,7 @@ import {
   Play,
   ShieldCheck,
 } from 'lucide-react'
-import { lazy, type CSSProperties, type ReactNode } from 'react'
-
-const ProvisionWallet = lazy(() =>
-  import('../../cdp').then((module) => ({ default: module.ProvisionWallet })),
-)
+import type { CSSProperties, ReactNode } from 'react'
 
 export function WalletOverview({
   config,

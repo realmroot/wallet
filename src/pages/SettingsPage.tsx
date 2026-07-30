@@ -6,10 +6,9 @@ import { useWalletDashboard } from '../features/dashboard/use-wallet-dashboard'
 import { delegationNeedsRenewal } from '../lib/format'
 import { PageError } from './DashboardPage'
 import { Copy, Droplets, ExternalLink, KeyRound, Pause, Play, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
-import { lazy, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { blockExplorerAddressUrl, networkName } from '../environment'
-
-const ProvisionWallet = lazy(() => import('../cdp').then((module) => ({ default: module.ProvisionWallet })))
+import { ProvisionWallet } from '../cdp'
 
 export function SettingsPage({ config }: { config: PublicConfig }) {
   const dashboard = useWalletDashboard(config)

@@ -140,6 +140,15 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect.poll(() => grantAction).toBe('pause')
   await expect(page.getByText('Paused')).toBeVisible()
 
+  await page.evaluate(() => {
+    sessionStorage.removeItem('menu-transition-seen')
+    new MutationObserver(() => {
+      if (document.querySelector('.transition-screen')) {
+        sessionStorage.setItem('menu-transition-seen', 'true')
+      }
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+
   await page.getByRole('link', { name: 'Activity' }).click()
   await expect(page).toHaveURL('/activity')
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
@@ -161,6 +170,15 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect(page).toHaveURL('/settings')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await expect(page.getByText('OIDC subject')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Payments' }).click()
+  await expect(page).toHaveURL('/payments')
+  await expect(page.getByRole('heading', { name: 'Payments' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Overview' }).click()
+  await expect(page).toHaveURL('/')
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  expect(await page.evaluate(() => sessionStorage.getItem('menu-transition-seen'))).toBeNull()
 })
 
 test('validates and approves an Agent budget request', async ({ page }) => {
