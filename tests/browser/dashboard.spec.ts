@@ -235,43 +235,62 @@ test('completes the OIDC callback and renders the requested page', async ({ page
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('agent-wallet.access_token')))
     .toBe('callback-access-token')
+  expect(
+    await page.evaluate(() => localStorage.getItem('agent-wallet.session.refresh_token')),
+  ).toBe('callback-refresh-token')
+  expect(await page.evaluate(() => localStorage.getItem('agent-wallet.refresh_token'))).toBeNull()
 })
 
-test('continues the existing identity session when switching to Sandbox', async ({ page }) => {
-  await page.route('**/api/sandbox/config', (route) =>
-    route.fulfill({
+test('switches environments through the shared session without visible OIDC navigation', async ({ page }) => {
+  let tokenExchange: Record<string, unknown> | null = null
+  let exchangeComplete = false
+  let discoveryRequested = false
+  await page.route('**/api/sandbox/oidc/token', async (route) => {
+    tokenExchange = await route.request().postDataJSON()
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    exchangeComplete = true
+    await route.fulfill({
       json: {
-        appOrigin: 'http://localhost:6230',
-        appBaseUrl: 'http://localhost:6230/sandbox',
-        oidcIssuer: 'https://fa.test/api/auth',
-        clientId: 'agent-wallet-web',
-        audience: 'http://localhost:6230/api/sandbox',
-        agentIssuer: 'https://fa.test/api/auth',
-        environment: 'sandbox',
-        network: 'eip155:84532',
-        paymentsEnabled: true,
-        cdpProjectId: null,
+        access_token: 'sandbox-access-token',
+        refresh_token: 'rotated-shared-refresh-token',
+        expires_in: 3600,
       },
-    }),
-  )
-  await page.route('https://fa.test/api/auth/.well-known/openid-configuration', (route) =>
-    route.fulfill({
-      headers: { 'access-control-allow-origin': '*' },
-      json: { authorization_endpoint: 'https://identity.test/authorize' },
-    }),
-  )
-  await page.route('https://identity.test/authorize**', (route) =>
-    route.fulfill({ contentType: 'text/html', body: '<main>Realmroot SSO</main>' }),
-  )
+    })
+  })
+  await page.route('https://fa.test/api/auth/.well-known/openid-configuration', (route) => {
+    discoveryRequested = true
+    return route.abort()
+  })
+  const walletNavigations: Array<{ path: string; exchangeComplete: boolean }> = []
+  page.on('framenavigated', (frame) => {
+    const url = new URL(frame.url())
+    if (frame === page.mainFrame() && url.origin === 'http://localhost:6230') {
+      walletNavigations.push({ path: url.pathname, exchangeComplete })
+    }
+  })
 
-  await page.goto('/sandbox')
-  await page.waitForURL(/^https:\/\/identity\.test\/authorize/)
+  await page.goto('/')
+  await page.evaluate(() => {
+    localStorage.setItem('agent-wallet.refresh_token', 'production-refresh-token')
+  })
+  await page.getByRole('link', { name: 'Sandbox' }).click()
+  await expect(page.getByText('Switching to Sandbox')).toBeVisible()
+  await page.waitForURL('http://localhost:6230/sandbox')
 
-  const authorization = new URL(page.url())
-  expect(authorization.searchParams.get('resource')).toBe('http://localhost:6230/api/sandbox')
-  expect(authorization.searchParams.get('redirect_uri')).toBe(
-    'http://localhost:6230/sandbox/oidc/callback',
-  )
+  expect(tokenExchange).toEqual({
+    grantType: 'refresh_token',
+    refreshToken: 'production-refresh-token',
+  })
+  expect(discoveryRequested).toBe(false)
+  expect(walletNavigations.filter(({ path }) => path === '/sandbox')).toEqual([
+    { path: '/sandbox', exchangeComplete: true },
+  ])
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('agent-wallet.sandbox.access_token')))
+    .toBe('sandbox-access-token')
+  expect(
+    await page.evaluate(() => localStorage.getItem('agent-wallet.session.refresh_token')),
+  ).toBe('rotated-shared-refresh-token')
 })
 
 test('signs out of both Wallet environments', async ({ page }) => {

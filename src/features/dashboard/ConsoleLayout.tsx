@@ -1,6 +1,6 @@
 import type { PublicConfig } from '../../auth'
-import { logout } from '../../auth'
-import { networkName } from '../../environment'
+import { beginEnvironmentSwitch, logout } from '../../auth'
+import { networkName, type WalletEnvironment } from '../../environment'
 import {
   Activity,
   Bot,
@@ -10,7 +10,7 @@ import {
   Settings,
   WalletCards,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type MouseEvent, type ReactNode } from 'react'
 import { Link, useLocation } from 'wouter'
 
 const navigation = [
@@ -31,6 +31,24 @@ export function ConsoleLayout({
   children: ReactNode
 }) {
   const [pathname] = useLocation()
+  const [switchingTo, setSwitchingTo] = useState<WalletEnvironment | null>(null)
+  const [switchError, setSwitchError] = useState<string | null>(null)
+  const switchEnvironment = (
+    event: MouseEvent<HTMLAnchorElement>,
+    target: WalletEnvironment,
+  ) => {
+    if (target === config.environment) {
+      event.preventDefault()
+      return
+    }
+    event.preventDefault()
+    setSwitchError(null)
+    setSwitchingTo(target)
+    void beginEnvironmentSwitch(config, target, pathname).catch((cause: unknown) => {
+      setSwitchingTo(null)
+      setSwitchError(cause instanceof Error ? cause.message : 'Environment switch failed.')
+    })
+  }
   const signOut = async () => {
     try {
       await logout(config)
@@ -51,12 +69,14 @@ export function ConsoleLayout({
           <a
             aria-current={config.environment === 'production' ? 'true' : undefined}
             href={config.appOrigin}
+            onClick={(event) => switchEnvironment(event, 'production')}
           >
             Production
           </a>
           <a
             aria-current={config.environment === 'sandbox' ? 'true' : undefined}
             href={`${config.appOrigin}/sandbox`}
+            onClick={(event) => switchEnvironment(event, 'sandbox')}
           >
             Sandbox
           </a>
@@ -98,6 +118,9 @@ export function ConsoleLayout({
         <a
           className="mobile-environment"
           href={config.environment === 'sandbox' ? config.appOrigin : `${config.appOrigin}/sandbox`}
+          onClick={(event) =>
+            switchEnvironment(event, config.environment === 'sandbox' ? 'production' : 'sandbox')
+          }
         >
           {config.environment === 'sandbox' ? 'Sandbox' : 'Production'}
         </a>
@@ -125,6 +148,14 @@ export function ConsoleLayout({
           )
         })}
       </nav>
+      {switchingTo ? (
+        <div className="environment-transition" role="status" aria-live="polite">
+          <span className="loader" />
+          <strong>Switching to {switchingTo === 'sandbox' ? 'Sandbox' : 'Production'}</strong>
+          <span>Keeping your Realmroot session active…</span>
+        </div>
+      ) : null}
+      {switchError ? <div className="environment-switch-error" role="alert">{switchError}</div> : null}
     </div>
   )
 }

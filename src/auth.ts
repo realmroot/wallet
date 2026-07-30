@@ -1,5 +1,5 @@
 import { type PublicConfig, walletApi } from './api-client'
-import { walletEnvironment } from './environment'
+import { walletEnvironment, type WalletEnvironment } from './environment'
 
 export type { PublicConfig } from './api-client'
 
@@ -17,7 +17,10 @@ interface TokenResponse {
 const productionPrefix = 'agent-wallet.'
 const sandboxPrefix = 'agent-wallet.sandbox.'
 const prefixes = [productionPrefix, sandboxPrefix] as const
-const prefix = walletEnvironment === 'sandbox' ? sandboxPrefix : productionPrefix
+const sharedRefreshTokenKey = 'agent-wallet.session.refresh_token'
+const storagePrefix = (environment: WalletEnvironment) =>
+  environment === 'sandbox' ? sandboxPrefix : productionPrefix
+const prefix = storagePrefix(walletEnvironment)
 const otherPrefix = walletEnvironment === 'sandbox' ? productionPrefix : sandboxPrefix
 let callbackExchange: Promise<string> | null = null
 let loginRedirect: Promise<void> | null = null
@@ -37,34 +40,95 @@ export function hasToken() {
 }
 
 export function hasRefreshToken() {
-  return Boolean(localStorage.getItem(`${prefix}refresh_token`))
+  return refreshTokens().length > 0
 }
 
 export function hasOtherEnvironmentSession() {
   return Boolean(
     localStorage.getItem(`${otherPrefix}access_token`) ||
-    localStorage.getItem(`${otherPrefix}refresh_token`),
+    hasRefreshToken(),
   )
 }
 
-export function beginLogin(config: PublicConfig, returnTo = '/') {
-  loginRedirect ??= startLogin(config, returnTo).catch((error: unknown) => {
+export function beginEnvironmentSwitch(
+  config: PublicConfig,
+  target: WalletEnvironment,
+  returnTo = '/',
+) {
+  const targetBaseUrl =
+    target === 'sandbox' ? `${config.appOrigin}/sandbox` : config.appOrigin
+  const targetPrefix = storagePrefix(target)
+  if (localStorage.getItem(`${targetPrefix}access_token`)) {
+    location.assign(returnTo === '/' ? targetBaseUrl : `${targetBaseUrl}${returnTo}`)
+    return Promise.resolve()
+  }
+
+  const targetApiUrl =
+    target === 'sandbox' ? `${config.appOrigin}/api/sandbox` : `${config.appOrigin}/api`
+  const targetConfig = {
+    oidcIssuer: config.oidcIssuer,
+    clientId: config.clientId,
+    appBaseUrl: targetBaseUrl,
+    audience: target === 'sandbox'
+      ? `${config.appOrigin}/api/sandbox`
+      : `${config.appOrigin}/api`,
+  }
+  loginRedirect ??= continueEnvironmentSession(
+    targetApiUrl,
+    targetBaseUrl,
+    targetConfig,
+    targetPrefix,
+    returnTo,
+  ).catch((error: unknown) => {
     loginRedirect = null
     throw error
   })
   return loginRedirect
 }
 
-async function startLogin(config: PublicConfig, returnTo: string) {
+async function continueEnvironmentSession(
+  targetApiUrl: string,
+  targetBaseUrl: string,
+  targetConfig: Pick<PublicConfig, 'oidcIssuer' | 'clientId' | 'appBaseUrl' | 'audience'>,
+  targetPrefix: string,
+  returnTo: string,
+) {
+  for (const refreshToken of refreshTokens()) {
+    const response = await fetch(`${targetApiUrl}/oidc/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ grantType: 'refresh_token', refreshToken }),
+    })
+    if (!response.ok) continue
+    storeTokens((await response.json()) as TokenResponse, targetPrefix)
+    location.assign(returnTo === '/' ? targetBaseUrl : `${targetBaseUrl}${returnTo}`)
+    return
+  }
+  await startLogin(targetConfig, returnTo, targetPrefix)
+}
+
+export function beginLogin(config: PublicConfig, returnTo = '/') {
+  loginRedirect ??= startLogin(config, returnTo, prefix).catch((error: unknown) => {
+    loginRedirect = null
+    throw error
+  })
+  return loginRedirect
+}
+
+async function startLogin(
+  config: Pick<PublicConfig, 'oidcIssuer' | 'clientId' | 'appBaseUrl' | 'audience'>,
+  returnTo: string,
+  targetPrefix: string,
+) {
   const metadata = await discovery(config.oidcIssuer)
   const state = crypto.randomUUID()
   const nonce = crypto.randomUUID()
   const verifier = randomBase64url(64)
   const challenge = await sha256Base64url(verifier)
-  sessionStorage.setItem(`${prefix}state`, state)
-  sessionStorage.setItem(`${prefix}nonce`, nonce)
-  sessionStorage.setItem(`${prefix}verifier`, verifier)
-  sessionStorage.setItem(`${prefix}return_to`, returnTo)
+  sessionStorage.setItem(`${targetPrefix}state`, state)
+  sessionStorage.setItem(`${targetPrefix}nonce`, nonce)
+  sessionStorage.setItem(`${targetPrefix}verifier`, verifier)
+  sessionStorage.setItem(`${targetPrefix}return_to`, returnTo)
 
   const url = new URL(metadata.authorization_endpoint)
   url.search = new URLSearchParams({
@@ -114,48 +178,62 @@ async function exchangeAuthorizationCode(config: PublicConfig) {
 }
 
 export async function refreshAccessToken(_config: PublicConfig) {
-  const refreshToken = localStorage.getItem(`${prefix}refresh_token`)
-  if (!refreshToken) throw new Error('OIDC login expired.')
-  const response = await walletApi.oidc.token.$post({
-    json: {
-      grantType: 'refresh_token',
-      refreshToken,
-    },
-  })
-  if (!response.ok) {
-    clearTokens()
-    throw new Error('OIDC refresh token was rejected.')
+  for (const refreshToken of refreshTokens()) {
+    const response = await walletApi.oidc.token.$post({
+      json: {
+        grantType: 'refresh_token',
+        refreshToken,
+      },
+    })
+    if (!response.ok) continue
+    storeTokens((await response.json()) as TokenResponse)
+    return
   }
-  storeTokens((await response.json()) as TokenResponse)
+  clearTokens()
+  localStorage.removeItem(sharedRefreshTokenKey)
+  throw new Error('OIDC refresh token was rejected.')
 }
 
 export async function logout(_config: PublicConfig) {
   try {
-    const refreshTokens = prefixes
-      .map((storagePrefix) => localStorage.getItem(`${storagePrefix}refresh_token`))
-      .filter((token): token is string => Boolean(token))
     await Promise.all(
-      refreshTokens.map(async (token) => {
+      refreshTokens().map(async (token) => {
         const response = await walletApi.oidc.revoke.$post({ json: { token } })
         if (!response.ok) throw new Error('OIDC token revocation failed.')
       }),
     )
   } finally {
     for (const storagePrefix of prefixes) clearTokens(storagePrefix)
+    localStorage.removeItem(sharedRefreshTokenKey)
   }
 }
 
-function storeTokens(tokens: TokenResponse) {
-  localStorage.setItem(`${prefix}access_token`, tokens.access_token)
-  if (tokens.refresh_token) localStorage.setItem(`${prefix}refresh_token`, tokens.refresh_token)
-  if (tokens.id_token) localStorage.setItem(`${prefix}id_token`, tokens.id_token)
-  localStorage.setItem(`${prefix}expires_at`, String(Date.now() + tokens.expires_in * 1000))
+function storeTokens(tokens: TokenResponse, targetPrefix = prefix) {
+  localStorage.setItem(`${targetPrefix}access_token`, tokens.access_token)
+  if (tokens.refresh_token) {
+    localStorage.setItem(sharedRefreshTokenKey, tokens.refresh_token)
+    for (const storagePrefix of prefixes) {
+      localStorage.removeItem(`${storagePrefix}refresh_token`)
+    }
+  }
+  if (tokens.id_token) localStorage.setItem(`${targetPrefix}id_token`, tokens.id_token)
+  localStorage.setItem(`${targetPrefix}expires_at`, String(Date.now() + tokens.expires_in * 1000))
 }
 
 function clearTokens(storagePrefix = prefix) {
   for (const key of ['access_token', 'refresh_token', 'id_token', 'expires_at']) {
     localStorage.removeItem(`${storagePrefix}${key}`)
   }
+}
+
+function refreshTokens() {
+  return [
+    localStorage.getItem(sharedRefreshTokenKey),
+    localStorage.getItem(`${prefix}refresh_token`),
+    localStorage.getItem(`${otherPrefix}refresh_token`),
+  ].filter((token, index, values): token is string =>
+    Boolean(token) && values.indexOf(token) === index,
+  )
 }
 
 async function discovery(issuer: string): Promise<OidcMetadata> {

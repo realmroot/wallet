@@ -79,9 +79,12 @@ Both environments are served from one origin:
 | Sandbox | `/sandbox` | `/api/sandbox` | Base Sepolia | `agent-wallet-sandbox` |
 
 Production is intentionally unmarked in routes and names. Sandbox always uses
-the explicit `sandbox` marker. Browser authentication state is namespaced by
-environment, and the UI environment selector performs a full navigation so
-tokens and cached API data cannot cross environments.
+the explicit `sandbox` marker. Access tokens remain namespaced by environment
+because their audiences differ, while one rotating refresh token represents
+the shared browser login session. The environment selector exchanges that
+session for the target audience before loading the target route, so cached API
+data and access tokens cannot cross environments without exposing an
+intermediate login page.
 
 The checked-in production configuration currently sets
 `PAYMENTS_ENABLED=false`. Production discovery and read operations remain

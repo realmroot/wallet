@@ -2,6 +2,7 @@ import { hasToken, loadConfig } from './auth'
 import { CdpProvider } from './cdp'
 import { LoginPage } from './pages/LoginPage'
 import { OidcCallbackPage } from './pages/OidcCallbackPage'
+import { TransitionScreen } from './components/TransitionScreen'
 import { useQuery } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
 import { Redirect, Route, Switch, useLocation } from 'wouter'
@@ -34,14 +35,14 @@ export function App() {
     retry: false,
   })
 
-  if (config.isPending) return <main className="center">Loading…</main>
+  if (config.isPending) return <TransitionScreen message="Loading your wallet…" />
   if (config.error) {
     return <main className="center"><div className="notice error">{config.error.message}</div></main>
   }
 
   return (
     <CdpProvider config={config.data}>
-      <Suspense fallback={<main className="center">Loading…</main>}>
+      <Suspense fallback={<TransitionScreen message="Loading your wallet…" />}>
         <Switch key={pathname}>
           <Route path="/oidc/callback"><OidcCallbackPage config={config.data} /></Route>
           <Route path="/authorize"><BudgetApprovalPage config={config.data} /></Route>

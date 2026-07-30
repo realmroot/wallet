@@ -5,9 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark" />
     <title>Agent Wallet</title>
+    <style>
+      html, body { margin: 0; min-height: 100%; background: #080d17; color: #f4f7fb; }
+      .boot-screen { min-height: 100dvh; display: grid; place-content: center; gap: 12px; text-align: center; font: 600 14px system-ui, sans-serif; }
+      .boot-mark { width: 42px; height: 42px; display: grid; place-items: center; margin: 0 auto; border: 1px solid #26354a; border-radius: 13px; color: #57e6a5; background: #101927; }
+      .boot-dot { width: 7px; height: 7px; margin: 2px auto 0; border-radius: 50%; background: #57e6a5; box-shadow: 0 0 16px #57e6a5; animation: boot-pulse .8s ease-in-out infinite alternate; }
+      @keyframes boot-pulse { to { opacity: .35; transform: scale(.75); } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main class="boot-screen" aria-label="Loading Agent Wallet">
+        <span class="boot-mark">AW</span>
+        <strong>Agent Wallet</strong>
+        <span class="boot-dot"></span>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
