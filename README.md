@@ -4,7 +4,9 @@ Agent Wallet is an independent, OIDC-native wallet SaaS for delegated x402 payme
 
 Each OIDC user gets one CDP end-user wallet. A user can authorize many Agents with separate total, per-payment, and daily/monthly USDC limits, an expiration time, and optional merchant-origin and recipient-address allowlists. The user can pause one Agent or freeze every Agent payment from the Wallet immediately. Agents never receive a wallet private key or a CDP credential: they present a short-lived, DPoP-bound Agent access token, and Agent Wallet applies policy before asking CDP to sign the x402 payment.
 
-The initial network is Base Sepolia (`eip155:84532`) with exact USDC payments. No smart contract is required.
+The production environment uses Base Mainnet (`eip155:8453`) and the explicitly
+marked Sandbox uses Base Sepolia (`eip155:84532`). Each environment has an
+independent D1 database. No smart contract is required.
 
 ## Trust boundary
 
@@ -33,9 +35,11 @@ The default app URL is `http://localhost:6230`.
 Configure the OIDC provider with:
 
 - a public SPA client using Authorization Code, Refresh Token, and PKCE;
-- redirect URI `http://localhost:6230/oidc/callback`;
+- redirect URIs `http://localhost:6230/oidc/callback` and
+  `http://localhost:6230/sandbox/oidc/callback`;
 - CORS origin `http://localhost:6230`;
-- an API resource with audience `http://localhost:6230/api`;
+- API resources with audiences `http://localhost:6230/api` and
+  `http://localhost:6230/api/sandbox`;
 - human scopes `wallet:read` and `wallet:manage`;
 - Agent scopes `wallet:read`, `wallet:budget:request`, and `wallet:x402:pay`.
 
@@ -61,23 +65,44 @@ Wallet registration is not trusted from the browser. Before storing a wallet,
 the Worker asks CDP to prove that the address belongs to the claimed end user
 and that CDP's developer-JWT authentication subject matches the current OIDC
 `sub`, then reads the real delegation expiry from CDP. CDP users and wallet
-addresses are unique within the Wallet service. The dashboard then shows Base
-Sepolia USDC/ETH balances, can request CDP faucet funds, and prompts the user to
-renew a delegation seven days before expiry.
+addresses are unique within each Wallet environment. The dashboard shows the
+selected network's USDC/ETH balances and prompts the user to renew a delegation
+seven days before expiry. Testnet faucet funding is available only in Sandbox.
+
+## Environments
+
+Both environments are served from one origin:
+
+| Environment | UI | API | Network | D1 |
+| --- | --- | --- | --- | --- |
+| Production | `/` | `/api` | Base Mainnet | `agent-wallet-production` |
+| Sandbox | `/sandbox` | `/api/sandbox` | Base Sepolia | `agent-wallet-sandbox` |
+
+Production is intentionally unmarked in routes and names. Sandbox always uses
+the explicit `sandbox` marker. Browser authentication state is namespaced by
+environment, and the UI environment selector performs a full navigation so
+tokens and cached API data cannot cross environments.
+
+The checked-in production configuration currently sets
+`PAYMENTS_ENABLED=false`. Production discovery and read operations remain
+available, but payment authorization fails fast until mainnet payments are
+deliberately enabled. Sandbox payment authorization remains enabled.
 
 ## Agent API flow
 
-Agent Wallet does not ship a product-specific CLI. It publishes an OpenAPI 3.1
-contract at the public `/openapi.json` discovery URL and mirrors it at
-`/api` and `/api/openapi.json`. The document's server URL points at the
-protected `/api` resource. Keeping discovery outside that resource prefix lets
-an Agent inspect the available operations before it has a target access grant.
-The API advertises the document with an RFC 8631 `service-desc` link. Restish or another Agent HTTP client discovers the
-operations directly:
+Agent Wallet does not ship a product-specific CLI. It publishes OpenAPI 3.1
+contracts at `/api/openapi.json` and `/api/sandbox/openapi.json`, with
+`/openapi.json` as the production discovery alias. Each API advertises its
+matching contract with an RFC 8631 `service-desc` link. The documents use a
+relative server URL so a standard OpenAPI client can select the production or
+Sandbox base URL without rewriting generated operation paths. Restish or
+another Agent HTTP client discovers the operations directly:
 
 ```sh
-restish api connect agent-wallet https://wallet.example.com --replace --yes
+restish api connect agent-wallet https://wallet.realmroot.dev/api --replace --yes
 restish api set agent-wallet 'command_layout: tags'
+restish api set agent-wallet \
+  'profiles.sandbox.base_url: https://wallet.realmroot.dev/api/sandbox'
 restish agent-wallet --help
 ```
 
@@ -91,6 +116,7 @@ This produces a compact, resource-oriented command surface:
 
 ```text
 restish agent-wallet wallet show
+restish -p sandbox agent-wallet wallet show
 restish agent-wallet budget request
 restish agent-wallet budget status <request-id>
 restish agent-wallet payment authorize <idempotency-key> --payment-required <value>
@@ -115,7 +141,7 @@ for clients that do not expose HTTP headers directly.
 
 After the business request succeeds, the Agent forwards its
 `PAYMENT-RESPONSE` header to `restish agent-wallet payment confirm`. The Wallet
-verifies a successful Base Sepolia receipt contains the exact USDC transfer
+verifies a successful receipt on the selected network contains the exact USDC transfer
 from the user's wallet to the requested merchant before marking the payment
 settled.
 At any point the Agent can recover the current state through
@@ -166,19 +192,20 @@ Hono RPC contract.
 ## Production deployment
 
 The checked-in Wrangler configuration targets
-`https://wallet.realmroot.dev`, uses Base Sepolia, and defaults to the CDP
-signer. Before deployment:
+`https://wallet.realmroot.dev`, binds separate production and Sandbox D1
+databases, and defaults to the CDP signer. Before deployment:
 
-1. Apply pending migrations with
-   `pnpm wrangler d1 migrations apply agent-wallet --remote`.
+1. Apply pending migrations with `pnpm db:migrate:production --remote` and
+   `pnpm db:migrate:sandbox --remote`.
 2. Set `CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and
    `CDP_WALLET_SECRET` with `pnpm wrangler secret put <NAME>`.
 3. Run `pnpm check`, then `pnpm run deploy`.
 
 `/healthz` is a process liveness probe. `/readyz` additionally checks D1 and
 all signer/OIDC configuration needed by the selected mode.
-`pnpm run deploy` also refuses to publish local HTTP URLs, mock signing, or the
-placeholder D1 identifier.
+`pnpm run deploy` also refuses to publish local HTTP URLs, mock signing,
+overlapping D1 identifiers, an unmarked Sandbox route, or inconsistent network
+and payment settings.
 
 The two-minute scheduled job releases abandoned signing reservations so a
 Worker crash cannot permanently consume a budget. D1 batches make the budget
@@ -187,4 +214,5 @@ enabled; configure production log retention and alerts for `request failed`,
 `wallet runtime lookup failed`, `expired authorization reconciliation failed`,
 and `payment maintenance completed`.
 Use D1 Time Travel or scheduled exports for recovery, and apply Cloudflare
-rate-limiting rules to `/api/agent/*` and `/api/x402/*` at the public edge.
+rate-limiting rules to the production and Sandbox Agent/x402 API paths at the
+public edge.

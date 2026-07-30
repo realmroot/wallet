@@ -15,6 +15,7 @@ export function buildAgentWallet(
 ): AgentWallet {
   const blockers: AgentWalletBlocker[] = []
   const now = Date.now()
+  if (env.PAYMENTS_ENABLED !== 'true') blockers.push('payments_disabled')
   const delegationActive = Boolean(
     user?.walletAddress &&
       user.cdpUserId &&

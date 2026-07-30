@@ -18,7 +18,7 @@ import {
   verifyWalletRegistration,
   walletAsset,
 } from './cdp'
-import { ApiError, badRequest } from './errors'
+import { ApiError, badRequest, forbidden } from './errors'
 import {
   exchangeOidcToken,
   oidcRevokeInput,
@@ -64,6 +64,7 @@ import {
 } from './agent-policy'
 import { verifySettlement } from './settlement'
 import { createX402Payment } from './signer'
+import { walletEnvironments } from './environment'
 import type { PaymentPayload } from '@x402/core/types'
 import {
   decodePaymentRequiredHeader,
@@ -91,31 +92,30 @@ export function createApp() {
     .get('/healthz', (c) =>
       c.json({
         status: 'ok',
+        environment: c.env.WALLET_ENVIRONMENT,
         network: c.env.WALLET_NETWORK,
         signer: c.env.SIGNER_MODE,
       }),
     )
     .get('/readyz', async (c) => {
-      const missing = requiredConfiguration(c.env).filter(
-        (name) => !(c.env as unknown as Record<string, string | undefined>)[name],
+      const environments = walletEnvironments(c.env)
+      const missing = environments.flatMap((env) =>
+        requiredConfiguration(env)
+          .filter((name) => !(env as unknown as Record<string, string | undefined>)[name])
+          .map((name) => `${env.WALLET_ENVIRONMENT}.${name}`),
       )
       if (missing.length > 0) {
         return c.json({ status: 'not_ready', missing }, 503)
       }
-      await c.env.DB.batch([
-        c.env.DB.prepare('SELECT paused_at FROM wallet_user LIMIT 1'),
-        c.env.DB.prepare('SELECT allowed_origins, allowed_recipients FROM agent_grant LIMIT 1'),
-        c.env.DB.prepare('SELECT transaction_hash, authorization_expires_at FROM payment LIMIT 1'),
-        c.env.DB.prepare('SELECT id FROM audit_event LIMIT 1'),
-      ])
+      await Promise.all(environments.map(checkDatabaseReadiness))
       return c.json({ status: 'ready' }, 200)
     })
     .get('/openapi.json', (c) => {
       c.header(
         'Link',
-        `<${c.env.APP_ORIGIN}/openapi.json>; rel="service-desc"; type="application/openapi+json"`,
+        `<${openApiUrl(c.env)}>; rel="service-desc"; type="application/openapi+json"`,
       )
-      return c.json(agentApiOpenApi(agentApi, c.env.APP_ORIGIN, c.env.OIDC_ISSUER))
+      return c.json(agentApiOpenApi(agentApi, c.env))
     })
     .route('/api', createApi(agentApi))
     .onError(handleError)
@@ -153,7 +153,7 @@ function createApi(agentApi: ReturnType<typeof createAgentApi>) {
   api.use('*', async (c, next) => {
     c.header(
       'Link',
-      `<${c.env.APP_ORIGIN}/openapi.json>; rel="service-desc"; type="application/openapi+json"`,
+      `<${openApiUrl(c.env)}>; rel="service-desc"; type="application/openapi+json"`,
     )
     await next()
   })
@@ -173,11 +173,14 @@ export function createHumanApi() {
       c.json(
         {
           appOrigin: c.env.APP_ORIGIN,
+          appBaseUrl: c.env.APP_BASE_URL,
           oidcIssuer: c.env.OIDC_ISSUER,
           clientId: c.env.OIDC_CLIENT_ID,
           audience: c.env.OIDC_AUDIENCE,
           agentIssuer: c.env.OIDC_ISSUER,
+          environment: c.env.WALLET_ENVIRONMENT,
           network: c.env.WALLET_NETWORK,
+          paymentsEnabled: c.env.PAYMENTS_ENABLED === 'true',
           cdpProjectId: c.env.CDP_PROJECT_ID ?? null,
         },
         200,
@@ -464,7 +467,7 @@ function createAgentApi() {
         createBudgetRequestRoute.operationId,
       )
       const input = c.req.valid('json')
-      const result = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN, input.name)
+      const result = await createBudgetRequest(c.env.DB, principal, c.env.APP_BASE_URL, input.name)
       if (result.status !== 'pending') return c.json(result, 200)
       setBudgetRequestHeaders(c, result)
       return c.json(result, 201)
@@ -494,7 +497,10 @@ function createAgentApi() {
         hasJsonBody,
       )
       const idempotencyKey = headers['idempotency-key']
-      const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN)
+      if (c.env.PAYMENTS_ENABLED !== 'true') {
+        throw forbidden('Payments are disabled in this environment.')
+      }
+      const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_BASE_URL)
       if (budget.status !== 'approved') {
         setBudgetRequestHeaders(c, budget)
         return c.json(budget, 202)
@@ -614,24 +620,29 @@ function createAgentApi() {
       )
     })
 
-  routes.get('/', (c) => c.json(agentApiOpenApi(api, c.env.APP_ORIGIN, c.env.OIDC_ISSUER)))
+  routes.get('/', (c) => c.json(agentApiOpenApi(api, c.env)))
   routes.get('/openapi.json', (c) =>
-    c.json(agentApiOpenApi(api, c.env.APP_ORIGIN, c.env.OIDC_ISSUER)),
+    c.json(agentApiOpenApi(api, c.env)),
   )
   routes.onError(handleError)
   return api
 }
 
-function agentApiDocument(origin: string) {
+function agentApiDocument(env: Env) {
   return {
     openapi: '3.1.0',
     info: {
-      title: 'Agent Wallet API',
+      title: env.WALLET_ENVIRONMENT === 'sandbox' ? 'Agent Wallet Sandbox API' : 'Agent Wallet API',
       version: '1.0.0',
       description:
         'A DPoP-protected x402 payer for delegated Agents. Inspect the delegated Wallet, request a budget, authorize payments, and confirm merchant settlements.',
     },
-    servers: [{ url: `${origin}/api` }],
+    servers: [{ url: '.' }],
+    'x-wallet-environment': {
+      name: env.WALLET_ENVIRONMENT,
+      network: env.WALLET_NETWORK,
+      paymentsEnabled: env.PAYMENTS_ENABLED === 'true',
+    },
     tags: [
       { name: 'wallet', description: 'Inspect the Wallet delegated to the current Agent.' },
       { name: 'budget', description: 'Request and track controller-approved spending budgets.' },
@@ -684,7 +695,7 @@ function setBudgetRequestHeaders(
   request: { requestId: string | null; pollIntervalSeconds?: number },
 ) {
   if (!request.requestId) throw new Error('A pending budget request must have a request ID.')
-  c.header('Location', `${c.env.APP_ORIGIN}/api/agent/budget-requests/${request.requestId}`)
+  c.header('Location', `${c.env.OIDC_AUDIENCE}/agent/budget-requests/${request.requestId}`)
   c.header('Retry-After', String(request.pollIntervalSeconds ?? 3))
 }
 
@@ -737,14 +748,13 @@ function isJsonRequest(request: Request) {
 
 function agentApiOpenApi(
   api: Pick<OpenAPIHono<AppEnv>, 'getOpenAPI31Document'>,
-  origin: string,
-  oidcIssuer: string,
+  env: Env,
 ) {
-  const document = api.getOpenAPI31Document(agentApiDocument(origin))
+  const document = api.getOpenAPI31Document(agentApiDocument(env))
   const scheme = document.components?.securitySchemes?.RealmrootOAuth
   if (scheme && 'flows' in scheme && scheme.flows?.authorizationCode) {
-    scheme.flows.authorizationCode.authorizationUrl = `${oidcIssuer}/oauth2/authorize`
-    scheme.flows.authorizationCode.tokenUrl = `${oidcIssuer}/oauth2/token`
+    scheme.flows.authorizationCode.authorizationUrl = `${env.OIDC_ISSUER}/oauth2/authorize`
+    scheme.flows.authorizationCode.tokenUrl = `${env.OIDC_ISSUER}/oauth2/token`
   }
   for (const path of Object.values(document.paths ?? {})) {
     for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
@@ -812,9 +822,12 @@ async function hashRequirement(paymentRequired: PaymentRequired) {
 function requiredConfiguration(env: Env) {
   const common = [
     'APP_ORIGIN',
+    'APP_BASE_URL',
     'OIDC_ISSUER',
     'OIDC_CLIENT_ID',
     'OIDC_AUDIENCE',
+    'PAYMENTS_ENABLED',
+    'WALLET_ENVIRONMENT',
     'WALLET_NETWORK',
   ]
   return env.SIGNER_MODE === 'mock'
@@ -827,4 +840,17 @@ function requiredConfiguration(env: Env) {
         'CDP_API_KEY_SECRET',
         'CDP_WALLET_SECRET',
       ]
+}
+
+function openApiUrl(env: Env) {
+  return `${env.OIDC_AUDIENCE}/openapi.json`
+}
+
+function checkDatabaseReadiness(env: Env) {
+  return env.DB.batch([
+    env.DB.prepare('SELECT paused_at FROM wallet_user LIMIT 1'),
+    env.DB.prepare('SELECT allowed_origins, allowed_recipients FROM agent_grant LIMIT 1'),
+    env.DB.prepare('SELECT transaction_hash, authorization_expires_at FROM payment LIMIT 1'),
+    env.DB.prepare('SELECT id FROM audit_event LIMIT 1'),
+  ])
 }

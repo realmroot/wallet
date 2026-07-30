@@ -1,4 +1,5 @@
 import { type PublicConfig, walletApi } from './api-client'
+import { walletEnvironment } from './environment'
 
 export type { PublicConfig } from './api-client'
 
@@ -13,7 +14,7 @@ interface TokenResponse {
   expires_in: number
 }
 
-const prefix = 'agent-wallet.'
+const prefix = walletEnvironment === 'sandbox' ? 'agent-wallet.sandbox.' : 'agent-wallet.'
 let callbackExchange: Promise<string> | null = null
 
 export async function loadConfig(): Promise<PublicConfig> {
@@ -44,7 +45,7 @@ export async function beginLogin(config: PublicConfig, returnTo = '/') {
   const url = new URL(metadata.authorization_endpoint)
   url.search = new URLSearchParams({
     client_id: config.clientId,
-    redirect_uri: `${config.appOrigin}/oidc/callback`,
+    redirect_uri: `${config.appBaseUrl}/oidc/callback`,
     response_type: 'code',
     scope: 'openid profile email offline_access wallet:read wallet:manage',
     resource: config.audience,

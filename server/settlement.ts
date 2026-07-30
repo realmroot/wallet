@@ -1,7 +1,7 @@
 import type { SettlementResponse } from '../shared/contracts'
 import { ApiError, badRequest, conflict, upstreamError } from './errors'
+import { walletChain, walletNetworkName } from './network'
 import { createPublicClient, decodeEventLog, erc20Abi, http } from 'viem'
-import { baseSepolia } from 'viem/chains'
 
 interface ExpectedSettlement {
   network: string
@@ -37,13 +37,10 @@ export async function verifySettlement(
     throw conflict('The payment was already settled by another transaction.')
   }
   if (env.SIGNER_MODE === 'mock') return
-  if (env.WALLET_NETWORK !== 'eip155:84532') {
-    throw badRequest(`Settlement verification is unsupported for ${env.WALLET_NETWORK}.`)
-  }
 
   try {
     const receipt = await createPublicClient({
-      chain: baseSepolia,
+      chain: walletChain(env.WALLET_NETWORK),
       transport: http(env.WALLET_RPC_URL),
     }).getTransactionReceipt({ hash: response.transaction as `0x${string}` })
     if (receipt.status !== 'success') throw badRequest('The settlement transaction reverted.')
@@ -52,7 +49,9 @@ export async function verifySettlement(
     if (!matched) throw badRequest('The settlement transaction has no matching USDC transfer.')
   } catch (error) {
     if (error instanceof ApiError) throw error
-    throw upstreamError('The settlement transaction is not confirmed on Base Sepolia.')
+    throw upstreamError(
+      `The settlement transaction is not confirmed on ${walletNetworkName(env.WALLET_NETWORK)}.`,
+    )
   }
 }
 

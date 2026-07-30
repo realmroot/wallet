@@ -1,6 +1,7 @@
 import type { PublicConfig } from '../auth'
 import { beginLogin } from '../auth'
 import { ArrowRight, Bot, KeyRound, ShieldCheck, WalletCards } from 'lucide-react'
+import { networkName } from '../environment'
 
 export function LoginPage({
   config,
@@ -14,10 +15,26 @@ export function LoginPage({
   return (
     <main className="login-page">
       <section className="login-hero">
-        <a className="wordmark login-wordmark" href="/" aria-label="Agent Wallet home">
-          <span className="brand-symbol"><WalletCards size={18} /></span>
-          <span>Agent Wallet</span>
-        </a>
+        <div className="login-header">
+          <a className="wordmark login-wordmark" href={config.appBaseUrl} aria-label="Agent Wallet home">
+            <span className="brand-symbol"><WalletCards size={18} /></span>
+            <span>Agent Wallet</span>
+          </a>
+          <div className="environment-switcher login-environment-switcher" aria-label="Wallet environment">
+            <a
+              aria-current={config.environment === 'production' ? 'true' : undefined}
+              href={config.appOrigin}
+            >
+              Production
+            </a>
+            <a
+              aria-current={config.environment === 'sandbox' ? 'true' : undefined}
+              href={`${config.appOrigin}/sandbox`}
+            >
+              Sandbox
+            </a>
+          </div>
+        </div>
         <div className="login-copy">
           <span className="product-kicker"><span /> OIDC-native Agent payments</span>
           <h1>Give Agents a budget.<br /><em>Keep the keys.</em></h1>
@@ -46,7 +63,9 @@ export function LoginPage({
           <div className="preview-balance">
             <small>Available balance</small>
             <strong>2,480.00 <span>USDC</span></strong>
-            <div className="preview-wallet-line"><span /> Base Sepolia · Protected</div>
+            <div className="preview-wallet-line">
+              <span /> {networkName(config.network)} · Protected
+            </div>
           </div>
           <div className="preview-agent">
             <span className="agent-avatar"><Bot size={18} /></span>

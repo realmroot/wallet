@@ -177,6 +177,7 @@ export const agentGrantSchema = z
 export type AgentGrant = z.infer<typeof agentGrantSchema>
 
 export const agentWalletBlockerSchema = z.enum([
+  'payments_disabled',
   'wallet_not_provisioned',
   'wallet_paused',
   'delegation_inactive',

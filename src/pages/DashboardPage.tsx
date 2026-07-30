@@ -9,6 +9,7 @@ import {
 import { useWalletDashboard } from '../features/dashboard/use-wallet-dashboard'
 import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
+import { networkName } from '../environment'
 
 export function DashboardPage({ config }: { config: PublicConfig }) {
   const dashboard = useWalletDashboard(config)
@@ -29,8 +30,13 @@ export function DashboardPage({ config }: { config: PublicConfig }) {
         eyebrow="Control plane"
         title="Overview"
         description="Your wallet, delegated budgets, and recent money movement at a glance."
-        action={<span className="network-badge"><span /> Base Sepolia</span>}
+        action={<span className="network-badge"><span /> {networkName(config.network)}</span>}
       />
+      {!config.paymentsEnabled ? (
+        <div className="notice" role="status">
+          Production payments are not enabled yet. Wallet setup and policy review remain available.
+        </div>
+      ) : null}
       <PageError error={error} />
       {dashboard.overview.isPending ? <DashboardSkeleton /> : null}
       {overview ? (

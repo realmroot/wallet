@@ -1,6 +1,8 @@
 import type { FaucetRequest, WalletRuntime, WalletUser } from '../shared/contracts'
 import { ApiError, badRequest, forbidden, upstreamError } from './errors'
+import { cdpNetwork, walletNetwork } from './network'
 import { CdpClient } from '@coinbase/cdp-sdk'
+import { getDefaultAsset } from '@x402/evm'
 
 const nativeAssetAddress = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
 
@@ -76,7 +78,7 @@ export async function getWalletRuntime(env: Env, user: WalletUser): Promise<{
     const [balances, endUser] = await Promise.all([
       cdp.evm.listTokenBalances({
         address: user.walletAddress as `0x${string}`,
-        network: cdpNetwork(env),
+        network: cdpNetwork(env.WALLET_NETWORK),
         pageSize: 100,
       }),
       cdp.endUser.getEndUser({ userId: user.cdpUserId }),
@@ -148,13 +150,12 @@ export async function requestTestnetFunds(env: Env, user: WalletUser, input: Fau
 }
 
 export function walletAsset(env: Env) {
-  if (env.WALLET_NETWORK !== 'eip155:84532') {
-    throw new Error(`Unsupported Wallet network: ${env.WALLET_NETWORK}`)
-  }
+  const network = walletNetwork(env.WALLET_NETWORK)
+  const asset = getDefaultAsset(network)
   return {
-    address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e' as `0x${string}`,
+    address: asset.address,
     symbol: 'USDC',
-    decimals: 6,
+    decimals: asset.decimals,
   }
 }
 
@@ -167,11 +168,4 @@ export function createCdpClient(env: Env) {
     apiKeySecret: env.CDP_API_KEY_SECRET,
     walletSecret: env.CDP_WALLET_SECRET,
   })
-}
-
-function cdpNetwork(env: Env): 'base-sepolia' {
-  if (env.WALLET_NETWORK !== 'eip155:84532') {
-    throw new Error(`Unsupported CDP balance network: ${env.WALLET_NETWORK}`)
-  }
-  return 'base-sepolia'
 }

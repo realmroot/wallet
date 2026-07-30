@@ -176,7 +176,7 @@ export const confirmPaymentSettlementRoute = createRoute({
   security: [{ RealmrootOAuth: [] }],
   summary: 'Confirm a payment settlement',
   description:
-    'After retrying the business request, forward its PAYMENT-RESPONSE header or submit the decoded SettleResponse as JSON. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
+    'After retrying the business request, forward its PAYMENT-RESPONSE header or submit the decoded SettleResponse as JSON. Successful responses are verified on the configured network before the payment is marked settled.',
   request: {
     params: paymentParamsSchema,
     headers: paymentResponseHeadersSchema,

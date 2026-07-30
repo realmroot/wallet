@@ -14,10 +14,17 @@ export default defineConfig({
       miniflare: {
         bindings: {
           APP_ORIGIN: 'https://wallet.test',
+          APP_BASE_URL: 'https://wallet.test',
           OIDC_ISSUER: 'https://fa.test/api/auth',
           OIDC_CLIENT_ID: 'agent-wallet-web',
           OIDC_AUDIENCE: 'https://wallet.test/api',
           WALLET_NETWORK: 'eip155:84532',
+          PAYMENTS_ENABLED: 'true',
+          WALLET_ENVIRONMENT: 'production',
+          SANDBOX_OIDC_AUDIENCE: 'https://wallet.test/api/sandbox',
+          SANDBOX_WALLET_NETWORK: 'eip155:84532',
+          SANDBOX_WALLET_RPC_URL: 'https://sepolia.base.org',
+          SANDBOX_PAYMENTS_ENABLED: 'true',
           SIGNER_MODE: 'mock',
           MOCK_SIGNER_PRIVATE_KEY: mockSignerPrivateKey,
           OIDC_JWKS: oidcJwks,

@@ -27,11 +27,14 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({
       json: {
         appOrigin: 'http://localhost:6230',
+        appBaseUrl: 'http://localhost:6230',
         oidcIssuer: 'https://fa.test/api/auth',
         clientId: 'agent-wallet-web',
         audience: 'http://localhost:6230/api',
         agentIssuer: 'https://fa.test/api/auth',
+        environment: 'production',
         network: 'eip155:84532',
+        paymentsEnabled: true,
         cdpProjectId: null,
       },
     }),

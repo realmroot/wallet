@@ -200,13 +200,40 @@ code { color: #92a3ba; font-size: .76rem; word-break: break-all; }
   background: rgba(8, 13, 24, .96);
 }
 .sidebar-wordmark { padding: 0 8px; }
+.environment-switcher {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  margin: 28px 8px 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-soft);
+}
+.environment-switcher a {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+.environment-switcher a:hover { color: var(--text); }
+.environment-switcher a[aria-current="true"] {
+  color: var(--text);
+  background: var(--surface-strong);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
+}
 .sidebar-network {
   display: inline-flex;
   width: fit-content;
   min-height: 30px;
   align-items: center;
   gap: 7px;
-  margin: 28px 8px 18px;
+  margin: 12px 8px 18px;
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -238,6 +265,16 @@ code { color: #92a3ba; font-size: .76rem; word-break: break-all; }
 .sidebar-footer > span { padding: 0 13px; overflow: hidden; color: var(--text-muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
 .signout-button { border: 0; text-align: left; }
 .mobile-header, .mobile-nav { display: none; }
+.mobile-environment {
+  margin-left: auto;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  font-size: .68rem;
+  font-weight: 700;
+  text-decoration: none;
+}
 .console-main {
   width: min(1120px, calc(100% - 312px));
   min-height: 100dvh;
@@ -427,7 +464,9 @@ code { color: #92a3ba; font-size: .76rem; word-break: break-all; }
 /* Login */
 .login-page { min-height: 100dvh; display: grid; grid-template-columns: minmax(0, 1.04fr) minmax(440px, .96fr); overflow: hidden; }
 .login-hero { position: relative; z-index: 1; display: flex; min-height: 100dvh; flex-direction: column; padding: clamp(28px, 4vw, 64px); }
+.login-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .login-wordmark { align-self: flex-start; }
+.login-environment-switcher { width: 210px; margin: 0; }
 .login-copy { max-width: 720px; margin: auto 0; padding: 64px 0; }
 .product-kicker { display: inline-flex; align-items: center; gap: 8px; margin-bottom: 24px; color: var(--accent); font-family: 'DM Mono', monospace; font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 .login-copy h1 { max-width: 760px; margin-bottom: 28px; font-size: clamp(3rem, 6.4vw, 6rem); line-height: .94; letter-spacing: -.07em; }

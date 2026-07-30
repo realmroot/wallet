@@ -18,18 +18,31 @@
   "d1_databases": [
     {
       "binding": "DB",
-      "database_name": "agent-wallet",
-      "database_id": "2eaea6ba-b43a-484d-9f5c-5a29bace5849",
+      "database_name": "agent-wallet-production",
+      "database_id": "1f757b8a-f79d-40cf-be1f-c51cf80424b4",
+      "migrations_dir": "./migrations"
+    },
+    {
+      "binding": "SANDBOX_DB",
+      "database_name": "agent-wallet-sandbox",
+      "database_id": "777afebc-07dc-4de7-b558-0d15d6c72022",
       "migrations_dir": "./migrations"
     }
   ],
   "vars": {
     "APP_ORIGIN": "https://wallet.realmroot.dev",
+    "APP_BASE_URL": "https://wallet.realmroot.dev",
     "OIDC_ISSUER": "https://id.realmroot.dev/api/auth",
     "OIDC_CLIENT_ID": "client_87c987abcddf4bb1b283794d626a0f43",
     "OIDC_AUDIENCE": "https://wallet.realmroot.dev/api",
-    "WALLET_NETWORK": "eip155:84532",
-    "WALLET_RPC_URL": "https://sepolia.base.org",
+    "WALLET_NETWORK": "eip155:8453",
+    "WALLET_RPC_URL": "https://mainnet.base.org",
+    "PAYMENTS_ENABLED": "false",
+    "WALLET_ENVIRONMENT": "production",
+    "SANDBOX_OIDC_AUDIENCE": "https://wallet.realmroot.dev/api/sandbox",
+    "SANDBOX_WALLET_NETWORK": "eip155:84532",
+    "SANDBOX_WALLET_RPC_URL": "https://sepolia.base.org",
+    "SANDBOX_PAYMENTS_ENABLED": "true",
     "SIGNER_MODE": "cdp"
   },
   "triggers": {

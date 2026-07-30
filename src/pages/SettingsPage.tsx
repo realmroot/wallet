@@ -7,6 +7,7 @@ import { delegationNeedsRenewal } from '../lib/format'
 import { PageError } from './DashboardPage'
 import { Copy, Droplets, ExternalLink, KeyRound, Pause, Play, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
 import { lazy, useState, type ReactNode } from 'react'
+import { blockExplorerAddressUrl, networkName } from '../environment'
 
 const ProvisionWallet = lazy(() => import('../cdp').then((module) => ({ default: module.ProvisionWallet })))
 
@@ -28,14 +29,15 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
       <PageHeading
         eyebrow="Wallet configuration"
         title="Settings"
-        description="Manage the wallet account, delegated signing permission, testnet funding, and emergency controls."
+        description="Manage the wallet account, delegated signing permission, funding, and emergency controls."
       />
       <PageError error={error} />
       {dashboard.overview.isPending ? <DashboardSkeleton /> : null}
       {overview ? (
         <div className="settings-grid">
           <SettingsCard icon={<WalletCards size={19} />} title="Wallet">
-            <SettingsRow label="Network" value="Base Sepolia" />
+            <SettingsRow label="Environment" value={config.environment === 'sandbox' ? 'Sandbox' : 'Production'} />
+            <SettingsRow label="Network" value={networkName(config.network)} />
             <SettingsRow
               label="Address"
               value={user?.walletAddress ?? 'Not provisioned'}
@@ -44,9 +46,11 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
                   <button className="icon-button" onClick={() => void copyAddress(user.walletAddress!)} aria-label="Copy address">
                     {copied ? <ShieldCheck size={17} /> : <Copy size={17} />}
                   </button>
-                  <a className="icon-button" href={`https://sepolia.basescan.org/address/${user.walletAddress}`} target="_blank" rel="noreferrer" aria-label="View wallet on BaseScan">
-                    <ExternalLink size={17} />
-                  </a>
+                  {blockExplorerAddressUrl(config.network, user.walletAddress) ? (
+                    <a className="icon-button" href={blockExplorerAddressUrl(config.network, user.walletAddress)!} target="_blank" rel="noreferrer" aria-label="View wallet on BaseScan">
+                      <ExternalLink size={17} />
+                    </a>
+                  ) : null}
                 </>
               ) : undefined}
             />
@@ -77,21 +81,23 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
             <SettingsRow label="Issuer" value={user?.issuer ?? config.oidcIssuer} mono />
           </SettingsCard>
 
-          <SettingsCard icon={<Droplets size={19} />} title="Testnet funding">
-            <p className="settings-help">Request test assets for Base Sepolia development and x402 validation.</p>
-            <div className="settings-actions">
-              {(['usdc', 'eth'] as const).map((token) => (
-                <button
-                  className="secondary-button"
-                  disabled={!overview.runtime.faucetAvailable || !user?.walletAddress || dashboard.busy(`faucet-${token}`)}
-                  key={token}
-                  onClick={() => void dashboard.run(`faucet-${token}`, () => requestFaucet(config, { token }))}
-                >
-                  <Droplets size={16} /> Get test {token.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </SettingsCard>
+          {config.environment === 'sandbox' ? (
+            <SettingsCard icon={<Droplets size={19} />} title="Testnet funding">
+              <p className="settings-help">Request test assets for Base Sepolia development and x402 validation.</p>
+              <div className="settings-actions">
+                {(['usdc', 'eth'] as const).map((token) => (
+                  <button
+                    className="secondary-button"
+                    disabled={!overview.runtime.faucetAvailable || !user?.walletAddress || dashboard.busy(`faucet-${token}`)}
+                    key={token}
+                    onClick={() => void dashboard.run(`faucet-${token}`, () => requestFaucet(config, { token }))}
+                  >
+                    <Droplets size={16} /> Get test {token.toUpperCase()}
+                  </button>
+                ))}
+              </div>
+            </SettingsCard>
+          ) : null}
 
           <SettingsCard icon={<ShieldCheck size={19} />} title="Emergency control" danger>
             <p className="settings-help">

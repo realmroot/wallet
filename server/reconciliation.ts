@@ -4,20 +4,20 @@ import {
   recordAuditEvent,
   releaseExpiredSignedPayment,
 } from './repository'
+import { walletChain } from './network'
 import { createPublicClient, http, parseAbi } from 'viem'
-import { baseSepolia } from 'viem/chains'
 
 const authorizationStateAbi = parseAbi([
   'function authorizationState(address authorizer, bytes32 nonce) view returns (bool)',
 ])
 
 export async function reconcileExpiredAuthorizations(env: Env) {
-  if (env.SIGNER_MODE !== 'cdp' || env.WALLET_NETWORK !== 'eip155:84532') return 0
+  if (env.SIGNER_MODE !== 'cdp') return 0
   const expired = await listExpiredSignedPayments(env.DB)
   if (expired.results.length === 0) return 0
 
   const client = createPublicClient({
-    chain: baseSepolia,
+    chain: walletChain(env.WALLET_NETWORK),
     transport: http(env.WALLET_RPC_URL),
   })
   const results = await Promise.all(

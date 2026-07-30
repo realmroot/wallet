@@ -1,6 +1,6 @@
 import { env, SELF } from 'cloudflare:test'
 import { cleanupExpiredReservations } from '../server/repository'
-import { hasMatchingDeveloperJwtIdentity } from '../server/cdp'
+import { hasMatchingDeveloperJwtIdentity, walletAsset } from '../server/cdp'
 import { hasMatchingUsdcTransfer } from '../server/settlement'
 import { withExplicitEip712Domain } from '../server/signer'
 import { buildAgentWallet } from '../server/agent-wallet'
@@ -126,6 +126,7 @@ describe('Agent Wallet', () => {
     const wallet = buildAgentWallet(
       {
         WALLET_NETWORK: 'eip155:84532',
+        PAYMENTS_ENABLED: 'true',
       } as Env,
       {
         id: 'user-1',
@@ -177,6 +178,15 @@ describe('Agent Wallet', () => {
     expect(wallet.budget?.remaining.period).toBe('25000')
   })
 
+  it('uses the canonical USDC asset for Base Mainnet and Base Sepolia', () => {
+    expect(walletAsset({ WALLET_NETWORK: 'eip155:8453' } as Env).address).toBe(
+      '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    )
+    expect(walletAsset({ WALLET_NETWORK: 'eip155:84532' } as Env).address).toBe(
+      '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    )
+  })
+
   it('reports deployment readiness', async () => {
     const response = await SELF.fetch('https://wallet.test/readyz')
     expect(response.status).toBe(200)
@@ -188,7 +198,12 @@ describe('Agent Wallet', () => {
     expect(discovery.status).toBe(200)
     expect(discovery.headers.get('link')).toContain('rel="service-desc"')
     expect(await discovery.json()).toMatchObject({
-      servers: [{ url: 'https://wallet.test/api' }],
+      servers: [{ url: '.' }],
+      'x-wallet-environment': {
+        name: 'production',
+        network: 'eip155:84532',
+        paymentsEnabled: true,
+      },
       components: {
         securitySchemes: {
           RealmrootOAuth: {
@@ -271,7 +286,7 @@ describe('Agent Wallet', () => {
 
     const root = await SELF.fetch('https://wallet.test/api')
     expect(root.status).toBe(200)
-    expect(root.headers.get('link')).toContain('https://wallet.test/openapi.json')
+    expect(root.headers.get('link')).toContain('https://wallet.test/api/openapi.json')
     expect(root.headers.get('x-request-id')).toBeTruthy()
     expect(await root.json()).toMatchObject({
       openapi: '3.1.0',
@@ -321,6 +336,60 @@ describe('Agent Wallet', () => {
     ])
 
     expect((await SELF.fetch('https://wallet.test/api/user-openapi.json')).status).toBe(404)
+  })
+
+  it('exposes Sandbox through an explicit isolated API prefix', async () => {
+    const configResponse = await SELF.fetch('https://wallet.test/api/sandbox/config')
+    expect(configResponse.status).toBe(200)
+    expect(await configResponse.json()).toMatchObject({
+      appOrigin: 'https://wallet.test',
+      appBaseUrl: 'https://wallet.test/sandbox',
+      audience: 'https://wallet.test/api/sandbox',
+      environment: 'sandbox',
+      network: 'eip155:84532',
+      paymentsEnabled: true,
+    })
+
+    const root = await SELF.fetch('https://wallet.test/api/sandbox')
+    expect(root.status).toBe(200)
+    expect(root.headers.get('link')).toContain(
+      'https://wallet.test/api/sandbox/openapi.json',
+    )
+    expect(await root.json()).toMatchObject({
+      info: { title: 'Agent Wallet Sandbox API' },
+      servers: [{ url: '.' }],
+      'x-wallet-environment': {
+        name: 'sandbox',
+        network: 'eip155:84532',
+        paymentsEnabled: true,
+      },
+    })
+
+    const contract = await SELF.fetch('https://wallet.test/api/sandbox/openapi.json')
+    expect(contract.status).toBe(200)
+    expect(await contract.json()).toMatchObject({
+      servers: [{ url: '.' }],
+    })
+  })
+
+  it('validates Sandbox DPoP proofs against the public Sandbox URL', async () => {
+    const sandboxWalletUrl = 'https://wallet.test/api/sandbox/agent/wallet'
+    const agentToken = await createAgentToken(
+      true,
+      ['wallet:read'],
+      'https://wallet.test/api/sandbox',
+    )
+    const response = await SELF.fetch(sandboxWalletUrl, {
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, sandboxWalletUrl, 'GET'),
+      },
+    })
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toMatchObject({
+      network: 'eip155:84532',
+    })
   })
 
   it('shows only the Wallet delegated to the current Agent', async () => {
@@ -993,6 +1062,7 @@ async function humanToken(subject = ownerSubject) {
 async function createAgentToken(
   delegated = true,
   grantedScopes = ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
+  tokenAudience = audience,
 ) {
   const thumbprint = await calculateJwkThumbprint(dpopPublicJwk)
   return new SignJWT({
@@ -1009,7 +1079,7 @@ async function createAgentToken(
   })
     .setProtectedHeader({ alg: 'RS256', kid: 'agent', typ: 'at+jwt' })
     .setIssuer(agentIssuer)
-    .setAudience(audience)
+    .setAudience(tokenAudience)
     .setSubject(delegated ? ownerSubject : agentSubject)
     .setIssuedAt()
     .setExpirationTime('5m')

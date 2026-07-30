@@ -48,7 +48,7 @@ export async function exchangeOidcToken(env: Env, input: OidcTokenInput) {
       ? new URLSearchParams({
           grant_type: input.grantType,
           client_id: env.OIDC_CLIENT_ID,
-          redirect_uri: `${env.APP_ORIGIN}/oidc/callback`,
+          redirect_uri: `${env.APP_BASE_URL}/oidc/callback`,
           code: input.code,
           code_verifier: input.codeVerifier,
           resource: env.OIDC_AUDIENCE,

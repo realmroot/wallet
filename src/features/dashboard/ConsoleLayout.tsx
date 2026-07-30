@@ -1,5 +1,6 @@
 import type { PublicConfig } from '../../auth'
 import { logout } from '../../auth'
+import { networkName } from '../../environment'
 import {
   Activity,
   Bot,
@@ -34,7 +35,7 @@ export function ConsoleLayout({
     try {
       await logout(config)
     } finally {
-      location.assign('/')
+      location.assign(config.appBaseUrl)
     }
   }
 
@@ -46,7 +47,23 @@ export function ConsoleLayout({
           <span className="brand-symbol"><WalletCards size={18} /></span>
           <span>Agent Wallet</span>
         </Link>
-        <div className="sidebar-network"><span /> Base Sepolia</div>
+        <div className="environment-switcher" aria-label="Wallet environment">
+          <a
+            aria-current={config.environment === 'production' ? 'true' : undefined}
+            href={config.appOrigin}
+          >
+            Production
+          </a>
+          <a
+            aria-current={config.environment === 'sandbox' ? 'true' : undefined}
+            href={`${config.appOrigin}/sandbox`}
+          >
+            Sandbox
+          </a>
+        </div>
+        <div className="sidebar-network">
+          <span /> {networkName(config.network)}
+        </div>
         <nav className="sidebar-nav" aria-label="Wallet navigation">
           {navigation.map((item) => {
             const active = pathname === item.href
@@ -78,6 +95,12 @@ export function ConsoleLayout({
           <span className="brand-symbol"><WalletCards size={18} /></span>
           <span>Agent Wallet</span>
         </Link>
+        <a
+          className="mobile-environment"
+          href={config.environment === 'sandbox' ? config.appOrigin : `${config.appOrigin}/sandbox`}
+        >
+          {config.environment === 'sandbox' ? 'Sandbox' : 'Production'}
+        </a>
         <button className="icon-button" onClick={() => void signOut()} aria-label="Sign out">
           <LogOut size={18} />
         </button>

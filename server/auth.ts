@@ -1,5 +1,6 @@
 import { forbidden, unauthorized } from './errors'
 import { requireAgentOperationPolicy, type AgentOperationId } from './agent-policy'
+import { publicRequestUrlHeader } from './environment'
 import {
   calculateJwkThumbprint,
   createLocalJWKSet,
@@ -189,17 +190,20 @@ async function verifyDpopProof(
     throw dpopUnauthorized('DPoP proof signature is invalid.')
   })
   const now = Math.floor(Date.now() / 1000)
-  const proofTarget = new URL(request.url)
+  const proofTarget = new URL(request.headers.get(publicRequestUrlHeader) ?? request.url)
   proofTarget.search = ''
   proofTarget.hash = ''
-  if (
-    payload.htm !== request.method ||
-    payload.htu !== proofTarget.href ||
-    typeof payload.iat !== 'number' ||
-    Math.abs(now - payload.iat) > 60 ||
-    typeof payload.jti !== 'string'
-  ) {
-    throw dpopUnauthorized('DPoP proof claims do not match the request.')
+  if (payload.htm !== request.method) {
+    throw dpopUnauthorized('DPoP proof method does not match the request.')
+  }
+  if (payload.htu !== proofTarget.href) {
+    throw dpopUnauthorized('DPoP proof URI does not match the request.')
+  }
+  if (typeof payload.iat !== 'number' || Math.abs(now - payload.iat) > 60) {
+    throw dpopUnauthorized('DPoP proof timestamp is outside the allowed window.')
+  }
+  if (typeof payload.jti !== 'string') {
+    throw dpopUnauthorized('DPoP proof has no identifier.')
   }
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(accessToken))
   const ath = base64url(new Uint8Array(digest))
