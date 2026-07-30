@@ -165,21 +165,19 @@ Hono RPC contract.
 
 ## Production deployment
 
-The checked-in Wrangler configuration is intentionally Base Sepolia-only and
-defaults to the CDP signer. Before deployment:
+The checked-in Wrangler configuration targets
+`https://wallet.realmroot.dev`, uses Base Sepolia, and defaults to the CDP
+signer. Before deployment:
 
-1. Create a D1 database with `pnpm wrangler d1 create agent-wallet`, replace the
-   placeholder `database_id` in `wrangler.jsonc`, and apply migrations with
+1. Apply pending migrations with
    `pnpm wrangler d1 migrations apply agent-wallet --remote`.
-2. Replace `APP_ORIGIN`, `OIDC_ISSUER`, `OIDC_CLIENT_ID`, and `OIDC_AUDIENCE`
-   with the deployed URLs and registered OIDC client/resource values.
-3. Set `CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and
+2. Set `CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and
    `CDP_WALLET_SECRET` with `pnpm wrangler secret put <NAME>`.
-4. Run `pnpm check`, then `pnpm deploy`.
+3. Run `pnpm check`, then `pnpm run deploy`.
 
 `/healthz` is a process liveness probe. `/readyz` additionally checks D1 and
 all signer/OIDC configuration needed by the selected mode.
-`pnpm deploy` also refuses to publish local HTTP URLs, mock signing, or the
+`pnpm run deploy` also refuses to publish local HTTP URLs, mock signing, or the
 placeholder D1 identifier.
 
 The two-minute scheduled job releases abandoned signing reservations so a

@@ -4,6 +4,13 @@
   "main": "server/worker.ts",
   "compatibility_date": "2026-07-29",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    {
+      "pattern": "wallet.realmroot.dev",
+      "custom_domain": true
+    }
+  ],
   "assets": {
     "not_found_handling": "single-page-application",
     "run_worker_first": ["/api", "/api/*", "/healthz", "/readyz", "/openapi.json"]
@@ -12,15 +19,15 @@
     {
       "binding": "DB",
       "database_name": "agent-wallet",
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "2eaea6ba-b43a-484d-9f5c-5a29bace5849",
       "migrations_dir": "./migrations"
     }
   ],
   "vars": {
-    "APP_ORIGIN": "http://localhost:6230",
-    "OIDC_ISSUER": "http://localhost:5173/api/auth",
-    "OIDC_CLIENT_ID": "agent-wallet-web",
-    "OIDC_AUDIENCE": "http://localhost:6230/api",
+    "APP_ORIGIN": "https://wallet.realmroot.dev",
+    "OIDC_ISSUER": "https://id.realmroot.dev/api/auth",
+    "OIDC_CLIENT_ID": "client_87c987abcddf4bb1b283794d626a0f43",
+    "OIDC_AUDIENCE": "https://wallet.realmroot.dev/api",
     "WALLET_NETWORK": "eip155:84532",
     "WALLET_RPC_URL": "https://sepolia.base.org",
     "SIGNER_MODE": "cdp"
