@@ -410,6 +410,8 @@ function createAgentApi() {
         authorizationUrl: 'https://realmroot.invalid/api/auth/oauth2/authorize',
         tokenUrl: 'https://realmroot.invalid/api/auth/oauth2/token',
         scopes: {
+          'wallet:read': 'Inspect the Wallet delegated to the current Agent.',
+          'wallet:budget:request': 'Request and track a controller-approved Agent budget.',
           'wallet:x402:pay': 'Create x402 payments within a controller-approved Agent budget.',
         },
       },
@@ -420,7 +422,7 @@ function createAgentApi() {
 
   const routes = api
     .openapi(getAgentWalletRoute, async (c) => {
-      const principal = await authenticateAgent(c.req.raw, c.env)
+      const principal = await authenticateAgent(c.req.raw, c.env, 'wallet:read')
       const state = await getAgentWalletState(c.env.DB, principal)
       const walletRuntime =
         state.user && state.grant ? await getWalletRuntime(c.env, state.user) : null
@@ -441,7 +443,7 @@ function createAgentApi() {
       )
     })
     .openapi(createBudgetRequestRoute, async (c) => {
-      const principal = await authenticateAgent(c.req.raw, c.env)
+      const principal = await authenticateAgent(c.req.raw, c.env, 'wallet:budget:request')
       const input = c.req.valid('json')
       const result = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN, input.name)
       if (result.status !== 'pending') return c.json(result, 200)
@@ -449,11 +451,14 @@ function createAgentApi() {
       return c.json(result, 201)
     })
     .openapi(getBudgetRequestRoute, async (c) => {
-      const principal = await authenticateAgent(c.req.raw, c.env)
-      return c.json(await getBudgetRequestForAgent(c.env.DB, c.req.valid('param').id, principal), 200)
+      const principal = await authenticateAgent(c.req.raw, c.env, 'wallet:budget:request')
+      return c.json(
+        await getBudgetRequestForAgent(c.env.DB, c.req.valid('param').requestId, principal),
+        200,
+      )
     })
     .openapi(createPaymentAuthorizationRoute, async (c) => {
-      const principal = await authenticateAgent(c.req.raw, c.env)
+      const principal = await authenticateAgent(c.req.raw, c.env, 'wallet:x402:pay')
       const paymentRequired = c.req.valid('json')
       const idempotencyKey = c.req.valid('header')['idempotency-key']
       const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN)
@@ -526,8 +531,8 @@ function createAgentApi() {
       }
     })
     .openapi(confirmPaymentSettlementRoute, async (c) => {
-      const principal = await authenticateAgent(c.req.raw, c.env)
-      const paymentId = c.req.valid('param').id
+      const principal = await authenticateAgent(c.req.raw, c.env, 'wallet:x402:pay')
+      const paymentId = c.req.valid('param').paymentId
       const response = c.req.valid('json')
       const payment = await getPaymentForSettlement(c.env.DB, paymentId, principal)
       await verifySettlement(c.env, payment, response)
@@ -616,10 +621,11 @@ function agentApiDocument(origin: string) {
 
 function setBudgetRequestHeaders(
   c: Context<AppEnv>,
-  request: { id: string; interval?: number },
+  request: { requestId: string | null; pollIntervalSeconds?: number },
 ) {
-  c.header('Location', `${c.env.APP_ORIGIN}/api/agent/budget-requests/${request.id}`)
-  c.header('Retry-After', String(request.interval ?? 3))
+  if (!request.requestId) throw new Error('A pending budget request must have a request ID.')
+  c.header('Location', `${c.env.APP_ORIGIN}/api/agent/budget-requests/${request.requestId}`)
+  c.header('Retry-After', String(request.pollIntervalSeconds ?? 3))
 }
 
 function agentApiOpenApi(
@@ -633,11 +639,19 @@ function agentApiOpenApi(
     scheme.flows.authorizationCode.authorizationUrl = `${oidcIssuer}/oauth2/authorize`
     scheme.flows.authorizationCode.tokenUrl = `${oidcIssuer}/oauth2/token`
   }
+  const requiredScopes: Record<string, string> = {
+    getAgentWallet: 'wallet:read',
+    createBudgetRequest: 'wallet:budget:request',
+    getBudgetRequest: 'wallet:budget:request',
+    createPaymentAuthorization: 'wallet:x402:pay',
+    confirmPaymentSettlement: 'wallet:x402:pay',
+  }
   for (const path of Object.values(document.paths ?? {})) {
     for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
       const operation = path?.[method]
-      if (operation?.security?.some((requirement) => 'DPoP' in requirement)) {
-        operation.security = [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }]
+      const requiredScope = operation?.operationId && requiredScopes[operation.operationId]
+      if (operation && requiredScope) {
+        operation.security = [{ DPoP: [] }, { ScopeCatalog: [requiredScope] }]
       }
     }
   }

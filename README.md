@@ -37,9 +37,9 @@ Configure the OIDC provider with:
 - CORS origin `http://localhost:6230`;
 - an API resource with audience `http://localhost:6230/api`;
 - human scopes `wallet:read` and `wallet:manage`;
-- Agent scope `wallet:x402:pay`.
+- Agent scopes `wallet:read`, `wallet:budget:request`, and `wallet:x402:pay`.
 
-Put the generated public client ID in `OIDC_CLIENT_ID`. With Realmroot, set `OIDC_ISSUER` to `http://localhost:4179/api/auth`. Agent Wallet discovers the signing keys from that issuer's OIDC metadata instead of assuming a JWKS path. Register the Wallet API as an enabled `native` authorization-mode API Resource with the configured `OIDC_AUDIENCE`; Realmroot discovers the Agent-facing `wallet:x402:pay` scope from the Wallet OpenAPI document. Register `wallet:read` and `wallet:manage` on the public SPA application.
+Put the generated public client ID in `OIDC_CLIENT_ID`. With Realmroot, set `OIDC_ISSUER` to `http://localhost:4179/api/auth`. Agent Wallet discovers the signing keys from that issuer's OIDC metadata instead of assuming a JWKS path. Register the Wallet API as an enabled `native` authorization-mode API Resource with the configured `OIDC_AUDIENCE`; Realmroot discovers the Agent-facing scopes from the Wallet OpenAPI document. Register `wallet:read` and `wallet:manage` on the public SPA application.
 
 ## CDP setup
 

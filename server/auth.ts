@@ -1,4 +1,4 @@
-import { unauthorized } from './errors'
+import { forbidden, unauthorized } from './errors'
 import {
   calculateJwkThumbprint,
   createLocalJWKSet,
@@ -65,7 +65,11 @@ export async function authenticateHuman(request: Request, env: Env, requiredScop
   }
 }
 
-export async function authenticateAgent(request: Request, env: Env): Promise<AgentPrincipal> {
+export async function authenticateAgent(
+  request: Request,
+  env: Env,
+  requiredScope: string,
+): Promise<AgentPrincipal> {
   const rawToken = bearer(request, 'DPoP')
   const jwks = await keySet(env)
   const { payload, protectedHeader } = await jwtVerify(rawToken, jwks, {
@@ -78,8 +82,8 @@ export async function authenticateAgent(request: Request, env: Env): Promise<Age
   if (protectedHeader.typ !== 'at+jwt') throw agentUnauthorized('Agent access token type is invalid.')
 
   const grantedScopes = scopes(payload)
-  if (!grantedScopes.includes('wallet:x402:pay')) {
-    throw agentUnauthorized('The wallet:x402:pay scope is required.')
+  if (!grantedScopes.includes(requiredScope)) {
+    throw agentInsufficientScope(requiredScope)
   }
   const confirmation = payload.cnf as { jkt?: unknown } | undefined
   if (typeof confirmation?.jkt !== 'string') {
@@ -210,6 +214,12 @@ async function verifyDpopProof(
 function agentUnauthorized(message: string) {
   return unauthorized(message, {
     'WWW-Authenticate': `DPoP error="invalid_token", error_description="${message}"`,
+  })
+}
+
+function agentInsufficientScope(requiredScope: string) {
+  return forbidden(`The ${requiredScope} scope is required.`, {
+    'WWW-Authenticate': `DPoP error="insufficient_scope", scope="${requiredScope}"`,
   })
 }
 

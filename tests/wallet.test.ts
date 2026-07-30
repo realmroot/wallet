@@ -197,6 +197,8 @@ describe('Agent Wallet', () => {
                 authorizationUrl: 'https://fa.test/api/auth/oauth2/authorize',
                 tokenUrl: 'https://fa.test/api/auth/oauth2/token',
                 scopes: {
+                  'wallet:read': expect.any(String),
+                  'wallet:budget:request': expect.any(String),
                   'wallet:x402:pay': expect.any(String),
                 },
               },
@@ -221,7 +223,17 @@ describe('Agent Wallet', () => {
             operationId: 'getAgentWallet',
             tags: ['wallet'],
             'x-cli-name': 'show',
-            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
+            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:read'] }],
+          },
+        },
+        '/agent/budget-requests': {
+          post: {
+            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:budget:request'] }],
+          },
+        },
+        '/agent/budget-requests/{requestId}': {
+          get: {
+            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:budget:request'] }],
           },
         },
         '/x402/payments': {
@@ -232,7 +244,7 @@ describe('Agent Wallet', () => {
             security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
           },
         },
-        '/x402/payments/{id}/settlement': {
+        '/x402/payments/{paymentId}/settlement': {
           put: {
             operationId: 'confirmPaymentSettlement',
             tags: ['payment'],
@@ -272,17 +284,17 @@ describe('Agent Wallet', () => {
         '/x402/payments': {
           post: { operationId: 'createPaymentAuthorization' },
         },
-        '/x402/payments/{id}/settlement': {
+        '/x402/payments/{paymentId}/settlement': {
           put: { operationId: 'confirmPaymentSettlement' },
         },
       },
     })
     expect(Object.keys(document.paths).sort()).toEqual([
       '/agent/budget-requests',
-      '/agent/budget-requests/{id}',
+      '/agent/budget-requests/{requestId}',
       '/agent/wallet',
       '/x402/payments',
-      '/x402/payments/{id}/settlement',
+      '/x402/payments/{paymentId}/settlement',
     ])
 
     expect((await SELF.fetch('https://wallet.test/api/user-openapi.json')).status).toBe(404)
@@ -326,6 +338,28 @@ describe('Agent Wallet', () => {
     expect(JSON.stringify(status)).not.toContain('cdp-user-1')
     expect(JSON.stringify(status)).not.toContain('owner@example.com')
     expect(JSON.stringify(status)).not.toContain(ownerSubject)
+  })
+
+  it('enforces least-privilege Agent scopes at runtime', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const readToken = await createAgentToken(true, ['wallet:read'])
+
+    const walletResponse = await SELF.fetch(agentWalletUrl, {
+      headers: {
+        authorization: `DPoP ${readToken}`,
+        dpop: await dpopProof(readToken, agentWalletUrl, 'GET'),
+      },
+    })
+    expect(walletResponse.status).toBe(200)
+
+    const paymentResponse = await pay(readToken, paymentRequired('25000'))
+    expect(paymentResponse.status).toBe(403)
+    expect(await paymentResponse.json()).toMatchObject({
+      error: 'forbidden',
+      message: 'The wallet:x402:pay scope is required.',
+    })
+    expect(paymentResponse.headers.get('www-authenticate')).toContain('insufficient_scope')
   })
 
   it('applies API security, CORS, body limits, and schema validation middleware', async () => {
@@ -429,17 +463,37 @@ describe('Agent Wallet', () => {
       /^https:\/\/wallet\.test\/api\/agent\/budget-requests\/[0-9a-f-]+$/,
     )
     expect(request.headers.get('retry-after')).toBe('3')
-    const pending = await request.json<{ id: string; status: string; approvalUrl: string }>()
+    const pending = await request.json<{
+      requestId: string
+      budgetId: null
+      status: string
+      approvalUrl: string
+      pollIntervalSeconds: number
+    }>()
     expect(pending.status).toBe('pending')
+    expect(pending.budgetId).toBeNull()
+    expect(pending.pollIntervalSeconds).toBe(3)
     expect(pending.approvalUrl).toContain('/authorize#request=')
 
     const decision = await approveBudget(token, pending)
     expect(decision.status, await decision.clone().text()).toBe(200)
     expect(await decision.json()).toMatchObject({ status: 'approved' })
 
-    const status = await budgetStatus(agentToken, pending.id)
+    const status = await budgetStatus(agentToken, pending.requestId)
     expect(status.status).toBe(200)
-    expect(await status.json()).toMatchObject({ status: 'approved' })
+    expect(await status.json()).toMatchObject({
+      requestId: pending.requestId,
+      budgetId: expect.any(String),
+      status: 'approved',
+    })
+
+    const existing = await createBudgetRequest(agentToken)
+    expect(existing.status).toBe(200)
+    expect(await existing.json()).toMatchObject({
+      requestId: null,
+      budgetId: expect.any(String),
+      status: 'approved',
+    })
   })
 
   it('turns a Base Sepolia x402 requirement into a signed payment under the Agent budget', async () => {
@@ -768,7 +822,7 @@ describe('Agent Wallet', () => {
     const otherToken = await humanToken('user-2')
     const agentToken = await createAgentToken()
     const pending = await (await createBudgetRequest(agentToken)).json<{
-      id: string
+      requestId: string
       approvalUrl: string
     }>()
     const response = await approveBudget(otherToken, pending)
@@ -795,10 +849,13 @@ async function humanToken(subject = ownerSubject) {
     .sign(humanPrivateKey)
 }
 
-async function createAgentToken(delegated = true) {
+async function createAgentToken(
+  delegated = true,
+  grantedScopes = ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
+) {
   const thumbprint = await calculateJwkThumbprint(dpopPublicJwk)
   return new SignJWT({
-    scope: 'wallet:x402:pay',
+    scope: grantedScopes.join(' '),
     cnf: { jkt: thumbprint },
     act: delegated
       ? {
@@ -861,7 +918,7 @@ async function provisionAndGrant(token: string) {
   expect(provision.status, await provision.clone().text()).toBe(204)
   const agentToken = await createAgentToken()
   const pending = await (await createBudgetRequest(agentToken)).json<{
-    id: string
+    requestId: string
     approvalUrl: string
   }>()
   const approval = await approveBudget(token, pending)
@@ -895,12 +952,12 @@ function budgetStatus(agentToken: string, requestId: string) {
 function approveBudget(
   token: string,
   pending: {
-    id: string
+    requestId: string
     approvalUrl: string
   },
 ) {
   const approvalToken = new URLSearchParams(new URL(pending.approvalUrl).hash.slice(1)).get('token')
-  return SELF.fetch(`https://wallet.test/api/budget-requests/${pending.id}/decision`, {
+  return SELF.fetch(`https://wallet.test/api/budget-requests/${pending.requestId}/decision`, {
     method: 'PUT',
     headers: jsonHeaders(`Bearer ${token}`),
     body: JSON.stringify({

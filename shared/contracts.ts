@@ -106,12 +106,16 @@ export type BudgetRequestStatus = z.infer<typeof budgetRequestStatusSchema>
 
 export const budgetRequestStateSchema = z
   .object({
-    id: resourceId,
+    requestId: resourceId
+      .nullable()
+      .openapi({ description: 'Budget request identifier, or null when an active budget already exists.' }),
+    budgetId: resourceId
+      .nullable()
+      .openapi({ description: 'Approved budget identifier, or null while no budget has been approved.' }),
     status: budgetRequestStatusSchema,
     expiresAt: z.iso.datetime(),
-    grantId: resourceId.nullable(),
     approvalUrl: z.url().optional(),
-    interval: z
+    pollIntervalSeconds: z
       .number()
       .int()
       .positive()

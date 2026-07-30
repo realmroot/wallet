@@ -67,10 +67,18 @@ const internalErrorResponse = {
   },
 } as const
 
-const idParamsSchema = z.object({
-  id: z.uuid().openapi({
-    param: { name: 'id', in: 'path' },
-    description: 'Resource identifier.',
+const budgetRequestParamsSchema = z.object({
+  requestId: z.uuid().openapi({
+    param: { name: 'requestId', in: 'path' },
+    description: 'Budget request identifier.',
+    example: '019c12e0-f8e0-7b71-87fd-43a523f07bd4',
+  }),
+})
+
+const paymentParamsSchema = z.object({
+  paymentId: z.uuid().openapi({
+    param: { name: 'paymentId', in: 'path' },
+    description: 'Payment identifier.',
     example: '019c12e0-f8e0-7b71-87fd-43a523f07bd4',
   }),
 })
@@ -145,7 +153,7 @@ export const getAgentWalletRoute = createRoute({
 
 export const confirmPaymentSettlementRoute = createRoute({
   method: 'put',
-  path: '/x402/payments/{id}/settlement',
+  path: '/x402/payments/{paymentId}/settlement',
   operationId: 'confirmPaymentSettlement',
   tags: ['payment'],
   'x-cli-name': 'confirm',
@@ -154,7 +162,7 @@ export const confirmPaymentSettlementRoute = createRoute({
   description:
     'After retrying the business request, decode its PAYMENT-RESPONSE header with the x402 standard Base64 HTTP decoder and submit the resulting SettleResponse here. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
   request: {
-    params: idParamsSchema,
+    params: paymentParamsSchema,
     body: {
       required: true,
       content: json(settlementResponseSchema),
@@ -177,16 +185,16 @@ export const confirmPaymentSettlementRoute = createRoute({
 
 export const getBudgetRequestRoute = createRoute({
   method: 'get',
-  path: '/agent/budget-requests/{id}',
+  path: '/agent/budget-requests/{requestId}',
   operationId: 'getBudgetRequest',
   tags: ['budget'],
   'x-cli-name': 'status',
   security: [{ DPoP: [] }],
   summary: 'Show a budget request',
   description:
-    'Poll at the returned interval until status is approved, denied, or expired. Retry payment authorization only after approval.',
+    'Poll at pollIntervalSeconds until status is approved, denied, or expired. Retry payment authorization only after approval.',
   request: {
-    params: idParamsSchema,
+    params: budgetRequestParamsSchema,
   },
   responses: {
     200: {

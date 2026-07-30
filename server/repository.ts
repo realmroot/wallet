@@ -241,10 +241,10 @@ export async function createBudgetRequest(
       .first<{ id: string; expires_at: string | null }>()
     if (active && (!active.expires_at || new Date(active.expires_at).getTime() > Date.now())) {
       return {
-        id: active.id,
+        requestId: null,
+        budgetId: active.id,
         status: 'approved',
         expiresAt: active.expires_at ?? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-        grantId: active.id,
       }
     }
   }
@@ -288,12 +288,12 @@ export async function createBudgetRequest(
     )
     .run()
   return {
-    id,
+    requestId: id,
+    budgetId: null,
     status: 'pending',
     expiresAt,
-    grantId: null,
     approvalUrl: `${appOrigin}/authorize#request=${encodeURIComponent(id)}&token=${encodeURIComponent(approvalToken)}`,
-    interval: 3,
+    pollIntervalSeconds: 3,
   }
 }
 
@@ -1102,10 +1102,10 @@ async function expireBudgetRequest(db: D1Database, row: BudgetRequestRow) {
 
 function toBudgetState(row: BudgetRequestRow): BudgetRequestState {
   return {
-    id: row.id,
+    requestId: row.id,
+    budgetId: row.grant_id,
     status: row.status,
     expiresAt: row.expires_at,
-    grantId: row.grant_id,
   }
 }
 
