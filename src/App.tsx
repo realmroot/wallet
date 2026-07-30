@@ -1,5 +1,11 @@
 import type { BudgetRequestDetail, WalletOverview } from '../shared/contracts'
-import { api, beginLogin, completeLogin, hasToken, loadConfig, logout, type PublicConfig } from './auth'
+import {
+  decideBudgetRequest,
+  getOverview,
+  inspectBudgetRequest,
+  revokeGrant,
+} from './api'
+import { beginLogin, completeLogin, hasToken, loadConfig, logout, type PublicConfig } from './auth'
 import { CdpProvider, ProvisionWallet } from './cdp'
 import { useEffect, useState } from 'react'
 
@@ -48,7 +54,7 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
   const [error, setError] = useState<string | null>(initialError)
 
   async function reload() {
-    setOverview(await api(config, '/api/overview'))
+    setOverview(await getOverview(config))
   }
 
   useEffect(() => {
@@ -110,7 +116,7 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                 </div>
               </div>
               <p className="muted section-copy">
-                New Agents request a budget from the Wallet CLI. You approve the request on its dedicated confirmation page.
+                New Agents request a budget through the Wallet API. You approve it on a dedicated confirmation page.
               </p>
               <div className="grid">
                 {overview.grants.map((grant) => (
@@ -130,7 +136,7 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                       <button
                         className="danger-link"
                         onClick={async () => {
-                          await api(config, `/api/grants/${grant.id}`, { method: 'DELETE' })
+                          await revokeGrant(config, grant.id)
                           await reload()
                         }}
                       >
@@ -140,7 +146,7 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                   </article>
                 ))}
                 {overview.grants.length === 0 ? (
-                  <div className="empty-state">No Agent budgets yet. Run the Wallet CLI to request one.</div>
+                  <div className="empty-state">No Agent budgets yet. An Agent can request one through the Wallet API.</div>
                 ) : null}
               </div>
             </section>
@@ -184,14 +190,7 @@ function BudgetApprovalPage({ config, initialError }: { config: PublicConfig; in
 
   useEffect(() => {
     if (!hasToken() || !requestId || !approvalToken) return
-    void api<BudgetRequestDetail>(
-      config,
-      `/api/budget-requests/${encodeURIComponent(requestId)}/inspect`,
-      {
-        method: 'POST',
-        body: JSON.stringify({ approvalToken }),
-      },
-    )
+    void inspectBudgetRequest(config, requestId, approvalToken)
       .then(setRequest)
       .catch((cause) => setError(cause instanceof Error ? cause.message : 'Budget request failed to load.'))
   }, [config, requestId, approvalToken])
@@ -218,7 +217,7 @@ function BudgetApprovalPage({ config, initialError }: { config: PublicConfig; in
         <div className="approval-card">
           <p className="eyebrow">Request {result}</p>
           <h2>{result === 'approved' ? 'The Agent can now use its budget.' : 'No budget was granted.'}</h2>
-          <p className="muted">You can close this page and return to the CLI.</p>
+          <p className="muted">You can close this page and return to the Agent.</p>
           <a className="primary button-link" href="/">Open wallet</a>
         </div>
       </main>
@@ -238,19 +237,20 @@ function BudgetApprovalPage({ config, initialError }: { config: PublicConfig; in
           event.preventDefault()
           const data = new FormData(event.currentTarget)
           try {
-            await api(config, `/api/budget-requests/${encodeURIComponent(request.id)}/decision`, {
-              method: 'PUT',
-              body: JSON.stringify({
-                decision: 'approve',
-                approvalToken,
-                name: String(data.get('name')),
-                totalLimit: toAtomic(String(data.get('totalLimit'))),
-                perTransactionLimit: toAtomic(String(data.get('perTransactionLimit'))),
-                periodKind: String(data.get('periodKind')),
-                periodLimit:
-                  data.get('periodKind') === 'none' ? null : toAtomic(String(data.get('periodLimit'))),
-                expiresAt: null,
-              }),
+            const periodKind = String(data.get('periodKind'))
+            if (!['none', 'daily', 'monthly'].includes(periodKind)) {
+              throw new Error('Reset period is invalid.')
+            }
+            await decideBudgetRequest(config, request.id, {
+              decision: 'approve',
+              approvalToken,
+              name: String(data.get('name')),
+              totalLimit: toAtomic(String(data.get('totalLimit'))),
+              perTransactionLimit: toAtomic(String(data.get('perTransactionLimit'))),
+              periodKind: periodKind as 'none' | 'daily' | 'monthly',
+              periodLimit:
+                data.get('periodKind') === 'none' ? null : toAtomic(String(data.get('periodLimit'))),
+              expiresAt: null,
             })
             setResult('approved')
           } catch (cause) {
@@ -298,10 +298,7 @@ function BudgetApprovalPage({ config, initialError }: { config: PublicConfig; in
             className="ghost"
             type="button"
             onClick={async () => {
-              await api(config, `/api/budget-requests/${encodeURIComponent(request.id)}/decision`, {
-                method: 'PUT',
-                body: JSON.stringify({ decision: 'deny', approvalToken }),
-              })
+              await decideBudgetRequest(config, request.id, { decision: 'deny', approvalToken })
               setResult('denied')
             }}
           >

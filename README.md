@@ -56,39 +56,23 @@ The Web app authenticates to CDP with the same OIDC JWT, creates an EOA, and gra
 
 `SIGNER_MODE=mock` is only for deterministic local regression. Its fixed test key must never be funded or deployed.
 
-## Agent CLI flow
+## Agent API flow
 
-Create the DPoP key before requesting an FA delegated Agent token. The FA token must be minted with this key's thumbprint and with Agent Wallet as its audience.
-
-```sh
-agent-wallet dpop init
-```
-
-Then call an x402-protected resource:
+Agent Wallet does not ship a product-specific CLI. It publishes an OpenAPI 3.1
+contract at `/api` and `/api/openapi.json`, and advertises it with an RFC 8631
+`service-desc` link. Restish or another Agent HTTP client discovers the
+operations directly:
 
 ```sh
-agent-wallet x402 GET https://api.example.com/paid \
-  --wallet-url https://wallet.example.com \
-  --agent-token "$FA_AGENT_TOKEN"
+restish api connect wallet https://wallet.example.com/api --replace --yes
+restish wallet --help
 ```
 
-The CLI performs the complete protocol:
-
-1. request the resource;
-2. parse the `402 Payment Required` response;
-3. ask Agent Wallet whether this Agent already has a budget;
-4. when it does not, open a browser confirmation page and wait for the user to choose the total, per-payment, and periodic limits;
-5. send the requirement to Agent Wallet with the FA Agent JWT and a fresh DPoP proof;
-6. receive an x402 `PaymentPayload`;
-7. retry the resource with `PAYMENT-SIGNATURE`.
-
-An Agent can request its budget before making a paid call:
-
-```sh
-agent-wallet authorize \
-  --wallet-url https://wallet.example.com \
-  --agent-token "$FA_AGENT_TOKEN"
-```
+FlareAuth's Restish adapter owns the Agent identity, target access token, and
+grant-specific DPoP key. The Agent calls its original business API, passes an
+unmodified `PaymentRequired` response to `createX402Payment`, completes the
+controller budget approval when the Wallet returns `202`, then retries the
+business request with the returned payment payload in `PAYMENT-SIGNATURE`.
 
 The Wallet UI never asks the user to type an Agent subject. The subject and
 authorizing user are taken only from the validated FA target access token.
@@ -97,6 +81,7 @@ authorizing user are taken only from the validated FA target access token.
 
 ```sh
 pnpm check
+pnpm preview
 pnpm demo:merchant
 ```
 

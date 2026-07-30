@@ -96,7 +96,14 @@ export async function overview(db: D1Database, user: WalletUser): Promise<Wallet
          FROM payment WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
       )
       .bind(user.id)
-      .all<{ id: string; amount: string; pay_to: string; resource: string; status: string; created_at: string }>(),
+      .all<{
+        id: string
+        amount: string
+        pay_to: string
+        resource: string
+        status: WalletOverview['payments'][number]['status']
+        created_at: string
+      }>(),
   ])
   return {
     user,

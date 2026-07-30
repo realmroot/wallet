@@ -1,4 +1,4 @@
-import { badRequest, unauthorized } from './errors'
+import { unauthorized } from './errors'
 import {
   calculateJwkThumbprint,
   createLocalJWKSet,
@@ -220,10 +220,4 @@ function base64url(bytes: Uint8Array) {
   let value = ''
   for (const byte of bytes) value += String.fromCharCode(byte)
   return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-}
-
-export function parseJson<T>(value: unknown, parser: { safeParse: (input: unknown) => { success: boolean; data?: T } }): T {
-  const parsed = parser.safeParse(value)
-  if (!parsed.success) throw badRequest('Request body is invalid.')
-  return parsed.data!
 }

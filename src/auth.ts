@@ -1,12 +1,6 @@
-export interface PublicConfig {
-  appOrigin: string
-  oidcIssuer: string
-  clientId: string
-  audience: string
-  agentIssuer: string
-  network: string
-  cdpProjectId: string | null
-}
+import { type PublicConfig, walletApi } from './api-client'
+
+export type { PublicConfig } from './api-client'
 
 interface OidcMetadata {
   authorization_endpoint: string
@@ -25,7 +19,7 @@ const prefix = 'agent-wallet.'
 let callbackExchange: Promise<void> | null = null
 
 export async function loadConfig(): Promise<PublicConfig> {
-  const response = await fetch('/api/config')
+  const response = await walletApi.config.$get()
   if (!response.ok) throw new Error('Wallet configuration is unavailable.')
   return response.json()
 }
@@ -140,29 +134,6 @@ export async function logout(config: PublicConfig) {
     }
   }
   clearTokens()
-}
-
-export async function api<T>(config: PublicConfig, path: string, init?: RequestInit): Promise<T> {
-  const call = () =>
-    fetch(path, {
-      ...init,
-      headers: {
-        'content-type': 'application/json',
-        ...init?.headers,
-        authorization: `Bearer ${accessToken()}`,
-      },
-    })
-  let response = await call()
-  if (response.status === 401 && localStorage.getItem(`${prefix}refresh_token`)) {
-    await refreshAccessToken(config)
-    response = await call()
-  }
-  if (!response.ok) {
-    const body = (await response.json().catch(() => null)) as { message?: string } | null
-    throw new Error(body?.message ?? `Request failed with ${response.status}.`)
-  }
-  if (response.status === 204) return undefined as T
-  return response.json()
 }
 
 function storeTokens(tokens: TokenResponse) {

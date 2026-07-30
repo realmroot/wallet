@@ -54,6 +54,7 @@ describe('Agent Wallet', () => {
     const root = await SELF.fetch('https://wallet.test/api')
     expect(root.status).toBe(200)
     expect(root.headers.get('link')).toContain('rel="service-desc"')
+    expect(root.headers.get('x-request-id')).toBeTruthy()
     expect(await root.json()).toMatchObject({
       openapi: '3.1.0',
       paths: {
@@ -65,7 +66,10 @@ describe('Agent Wallet', () => {
 
     const contract = await SELF.fetch('https://wallet.test/api/openapi.json')
     expect(contract.status).toBe(200)
-    expect(await contract.json()).toMatchObject({
+    const document = await contract.json<{
+      paths: Record<string, unknown>
+    }>()
+    expect(document).toMatchObject({
       openapi: '3.1.0',
       'x-x402': {
         role: 'payer',
@@ -77,6 +81,42 @@ describe('Agent Wallet', () => {
         },
       },
     })
+    expect(Object.keys(document.paths).sort()).toEqual([
+      '/agent/budget-requests',
+      '/agent/budget-requests/{id}',
+      '/x402/payments',
+    ])
+
+    expect((await SELF.fetch('https://wallet.test/api/user-openapi.json')).status).toBe(404)
+  })
+
+  it('applies API security, CORS, body limits, and schema validation middleware', async () => {
+    const config = await SELF.fetch('https://wallet.test/api/config', {
+      headers: { origin: 'https://wallet.test' },
+    })
+    expect(config.status).toBe(200)
+    expect(config.headers.get('access-control-allow-origin')).toBe('https://wallet.test')
+    expect(config.headers.get('x-content-type-options')).toBe('nosniff')
+    expect(config.headers.get('x-request-id')).toBeTruthy()
+
+    const invalid = await SELF.fetch(walletUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(invalid.status).toBe(400)
+    expect(await invalid.json()).toMatchObject({
+      error: 'bad_request',
+      message: 'Request validation failed.',
+    })
+
+    const oversized = await SELF.fetch(walletUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ padding: 'x'.repeat(65 * 1024) }),
+    })
+    expect(oversized.status).toBe(413)
+    expect(await oversized.json()).toMatchObject({ error: 'payload_too_large' })
   })
 
   it('provisions a wallet and approves a budget requested by the payment operation', async () => {

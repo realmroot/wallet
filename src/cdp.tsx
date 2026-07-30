@@ -1,4 +1,5 @@
-import { accessToken, api, type PublicConfig } from './auth'
+import { updateWallet } from './api'
+import { accessToken, type PublicConfig } from './auth'
 import { useAuthenticateWithJWT, useCreateDelegation, useCurrentUser, useEvmAccounts } from '@coinbase/cdp-hooks'
 import { CDPReactProvider } from '@coinbase/cdp-react'
 import type { ReactNode } from 'react'
@@ -61,13 +62,10 @@ function CdpProvisioning({
       if (!address) throw new Error('CDP did not provision an EVM account.')
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
       await createDelegation({ expiresAt })
-      await api(config, '/api/wallet', {
-        method: 'PUT',
-        body: JSON.stringify({
-          cdpUserId: authenticated.userId,
-          address,
-          delegationExpiresAt: expiresAt,
-        }),
+      await updateWallet(config, {
+        cdpUserId: authenticated.userId,
+        address,
+        delegationExpiresAt: expiresAt,
       })
       await onComplete()
     } catch (cause) {
