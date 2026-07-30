@@ -364,21 +364,3 @@ export function Activity({ overview, page = false }: { overview: WalletOverviewD
     </section>
   )
 }
-
-export function DashboardSkeleton() {
-  return (
-    <div className="dashboard-skeleton" aria-label="Loading wallet">
-      <div className="skeleton skeleton-large" />
-      <div className="skeleton skeleton-large" />
-      <div className="skeleton skeleton-wide" />
-    </div>
-  )
-}
-
-export function LoadingScreen() {
-  return (
-    <main className="center">
-      <span className="loader" aria-label="Loading wallet" />
-    </main>
-  )
-}

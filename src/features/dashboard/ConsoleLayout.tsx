@@ -1,6 +1,7 @@
 import type { PublicConfig } from '../../auth'
 import { beginEnvironmentSwitch, logout } from '../../auth'
 import { networkName, type WalletEnvironment } from '../../environment'
+import { TransitionScreen } from '../../components/TransitionScreen'
 import {
   Activity,
   Bot,
@@ -149,11 +150,7 @@ export function ConsoleLayout({
         })}
       </nav>
       {switchingTo ? (
-        <div className="environment-transition" role="status" aria-live="polite">
-          <span className="loader" />
-          <strong>Switching to {switchingTo === 'sandbox' ? 'Sandbox' : 'Production'}</strong>
-          <span>Keeping your Realmroot session active…</span>
-        </div>
+        <TransitionScreen message="Loading your wallet…" overlay />
       ) : null}
       {switchError ? <div className="environment-switch-error" role="alert">{switchError}</div> : null}
     </div>

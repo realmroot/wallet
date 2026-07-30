@@ -1,12 +1,20 @@
-import { LoaderCircle, WalletCards } from 'lucide-react'
-
-export function TransitionScreen({ message }: { message: string }) {
+export function TransitionScreen({
+  message,
+  overlay = false,
+}: {
+  message: string
+  overlay?: boolean
+}) {
   return (
-    <main className="transition-screen" role="status" aria-live="polite">
-      <span className="transition-brand"><WalletCards size={22} /></span>
+    <div
+      className={`transition-screen${overlay ? ' environment-transition' : ''}`}
+      role="status"
+      aria-live="polite"
+    >
+      <span className="transition-brand" aria-hidden="true">AW</span>
       <strong>Agent Wallet</strong>
-      <LoaderCircle className="transition-spinner" size={22} />
+      <span className="transition-spinner" aria-hidden="true" />
       <span>{message}</span>
-    </main>
+    </div>
   )
 }

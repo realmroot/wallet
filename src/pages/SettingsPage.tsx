@@ -1,7 +1,7 @@
 import { actOnWallet, requestFaucet } from '../api'
 import type { PublicConfig } from '../auth'
 import { ConsoleLayout, PageHeading } from '../features/dashboard/ConsoleLayout'
-import { DashboardSkeleton } from '../features/dashboard/DashboardComponents'
+import { TransitionScreen } from '../components/TransitionScreen'
 import { useWalletDashboard } from '../features/dashboard/use-wallet-dashboard'
 import { delegationNeedsRenewal } from '../lib/format'
 import { PageError } from './DashboardPage'
@@ -24,6 +24,10 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
     window.setTimeout(() => setCopied(false), 1800)
   }
 
+  if (dashboard.overview.isPending) {
+    return <TransitionScreen message="Loading your wallet…" />
+  }
+
   return (
     <ConsoleLayout config={config} email={user?.email}>
       <PageHeading
@@ -32,7 +36,6 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
         description="Manage the wallet account, delegated signing permission, funding, and emergency controls."
       />
       <PageError error={error} />
-      {dashboard.overview.isPending ? <DashboardSkeleton /> : null}
       {overview ? (
         <div className="settings-grid">
           <SettingsCard icon={<WalletCards size={19} />} title="Wallet">

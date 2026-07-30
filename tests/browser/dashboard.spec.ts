@@ -245,6 +245,47 @@ test('switches environments through the shared session without visible OIDC navi
   let tokenExchange: Record<string, unknown> | null = null
   let exchangeComplete = false
   let discoveryRequested = false
+  await page.route('**/api/sandbox/config', (route) =>
+    route.fulfill({
+      json: {
+        appOrigin: 'http://localhost:6230',
+        appBaseUrl: 'http://localhost:6230/sandbox',
+        oidcIssuer: 'https://fa.test/api/auth',
+        clientId: 'agent-wallet-web',
+        audience: 'http://localhost:6230/api/sandbox',
+        agentIssuer: 'https://fa.test/api/auth',
+        environment: 'sandbox',
+        network: 'eip155:84532',
+        paymentsEnabled: true,
+        cdpProjectId: null,
+      },
+    }),
+  )
+  await page.route('**/api/sandbox/overview', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await route.fulfill({
+      json: {
+        user: {
+          id: 'sandbox-user',
+          issuer: 'https://fa.test/api/auth',
+          subject: 'user-1',
+          email: 'owner@example.com',
+          cdpUserId: null,
+          walletAddress: null,
+          delegationExpiresAt: null,
+          pausedAt: null,
+        },
+        grants: [],
+        payments: [],
+        auditEvents: [],
+        runtime: {
+          balances: [],
+          balanceStatus: 'unavailable',
+          faucetAvailable: false,
+        },
+      },
+    })
+  })
   await page.route('**/api/sandbox/oidc/token', async (route) => {
     tokenExchange = await route.request().postDataJSON()
     await new Promise((resolve) => setTimeout(resolve, 150))
@@ -274,8 +315,11 @@ test('switches environments through the shared session without visible OIDC navi
     localStorage.setItem('agent-wallet.refresh_token', 'production-refresh-token')
   })
   await page.getByRole('link', { name: 'Sandbox' }).click()
-  await expect(page.getByText('Switching to Sandbox')).toBeVisible()
+  await expect(page.getByText('Loading your wallet…')).toBeVisible()
   await page.waitForURL('http://localhost:6230/sandbox')
+  await expect(page.getByText('Loading your wallet…')).toBeVisible()
+  await expect(page.locator('.dashboard-skeleton')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
 
   expect(tokenExchange).toEqual({
     grantType: 'refresh_token',
