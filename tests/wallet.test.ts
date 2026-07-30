@@ -8,6 +8,11 @@ import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT 
 import { getDefaultAsset } from '@x402/evm'
 import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
+import {
+  decodePaymentSignatureHeader,
+  encodePaymentRequiredHeader,
+  encodePaymentResponseHeader,
+} from '@x402/core/http'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 const humanIssuer = 'https://fa.test/api/auth'
@@ -288,6 +293,11 @@ describe('Agent Wallet', () => {
         role: 'payer',
         paymentOperationId: 'createPaymentAuthorization',
         settlementOperationId: 'confirmPaymentSettlement',
+        headers: {
+          paymentRequired: 'PAYMENT-REQUIRED',
+          paymentSignature: 'PAYMENT-SIGNATURE',
+          paymentResponse: 'PAYMENT-RESPONSE',
+        },
       },
       paths: {
         '/x402/payments': {
@@ -603,6 +613,80 @@ describe('Agent Wallet', () => {
       },
     })
     expect(missing.status).toBe(404)
+  })
+
+  it('supports the standard x402 HTTP header transport', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const authorization = await SELF.fetch(walletUrl, {
+      method: 'POST',
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, walletUrl, 'POST'),
+        'idempotency-key': crypto.randomUUID(),
+        'payment-required': encodePaymentRequiredHeader(paymentRequired('25000')),
+      },
+    })
+
+    expect(authorization.status, await authorization.clone().text()).toBe(200)
+    const authorizationBody = await authorization.json<{
+      paymentId: string
+      paymentPayload: Record<string, unknown>
+    }>()
+    expect(
+      decodePaymentSignatureHeader(authorization.headers.get('payment-signature')!),
+    ).toEqual(authorizationBody.paymentPayload)
+
+    const transaction = `0x${'cd'.repeat(32)}`
+    const settlementUrl = `${walletUrl}/${authorizationBody.paymentId}/settlement`
+    const settlement = await SELF.fetch(settlementUrl, {
+      method: 'PUT',
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, settlementUrl, 'PUT'),
+        'payment-response': encodePaymentResponseHeader({
+          success: true,
+          payer: walletAddress,
+          transaction,
+          network: 'eip155:84532',
+        }),
+      },
+    })
+    expect(settlement.status, await settlement.clone().text()).toBe(200)
+    expect(await settlement.json()).toEqual({
+      paymentId: authorizationBody.paymentId,
+      status: 'settled',
+      transactionHash: transaction,
+    })
+  })
+
+  it('rejects ambiguous or malformed x402 payment input', async () => {
+    const agentToken = await createAgentToken()
+    const malformed = await SELF.fetch(walletUrl, {
+      method: 'POST',
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, walletUrl, 'POST'),
+        'idempotency-key': crypto.randomUUID(),
+        'payment-required': 'not-base64',
+      },
+    })
+    expect(malformed.status).toBe(400)
+
+    const requirement = paymentRequired('25000')
+    const ambiguous = await SELF.fetch(walletUrl, {
+      method: 'POST',
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, walletUrl, 'POST'),
+        'idempotency-key': crypto.randomUUID(),
+        'payment-required': encodePaymentRequiredHeader(requirement),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(requirement),
+    })
+    expect(ambiguous.status).toBe(400)
   })
 
   it('records a verified x402 settlement response', async () => {

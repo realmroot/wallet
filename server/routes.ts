@@ -92,6 +92,20 @@ const idempotencyHeadersSchema = z.object({
   }),
 })
 
+const paymentRequiredHeadersSchema = idempotencyHeadersSchema.extend({
+  'payment-required': z.string().min(1).max(64 * 1024).optional().openapi({
+    param: { name: 'payment-required', in: 'header' },
+    description: 'Standard x402 Base64-encoded PaymentRequired object.',
+  }),
+})
+
+const paymentResponseHeadersSchema = z.object({
+  'payment-response': z.string().min(1).max(64 * 1024).optional().openapi({
+    param: { name: 'payment-response', in: 'header' },
+    description: 'Standard x402 Base64-encoded SettleResponse object.',
+  }),
+})
+
 export const createBudgetRequestRoute = createRoute({
   method: 'post',
   path: '/agent/budget-requests',
@@ -162,11 +176,12 @@ export const confirmPaymentSettlementRoute = createRoute({
   security: [{ RealmrootOAuth: [] }],
   summary: 'Confirm a payment settlement',
   description:
-    'After retrying the business request, decode its PAYMENT-RESPONSE header with the x402 standard Base64 HTTP decoder and submit the resulting SettleResponse here. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
+    'After retrying the business request, forward its PAYMENT-RESPONSE header or submit the decoded SettleResponse as JSON. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
   request: {
     params: paymentParamsSchema,
+    headers: paymentResponseHeadersSchema,
     body: {
-      required: true,
+      required: false,
       content: json(settlementResponseSchema),
     },
   },
@@ -219,17 +234,24 @@ export const createPaymentAuthorizationRoute = createRoute({
   security: [{ RealmrootOAuth: [] }],
   summary: 'Authorize an x402 payment',
   description:
-    'Pass the unmodified x402 PaymentRequired object returned by a business API. On 200, encode paymentPayload with the x402 standard Base64 HTTP encoder in PAYMENT-SIGNATURE and retry the original business request. On 202, open approvalUrl for the controller, poll the budget request, and retry this operation after approval.',
+    'Pass the unmodified x402 PaymentRequired object as either JSON or the standard PAYMENT-REQUIRED header. On 200, forward the returned PAYMENT-SIGNATURE header to the original business request. On 202, open approvalUrl for the controller, poll the budget request, and retry this operation after approval.',
   request: {
-    headers: idempotencyHeadersSchema,
+    headers: paymentRequiredHeadersSchema,
     body: {
-      required: true,
+      required: false,
       content: json(paymentRequiredSchema),
     },
   },
   responses: {
     200: {
       description: 'The signed x402 payment is ready for the original business request.',
+      headers: {
+        'PAYMENT-SIGNATURE': {
+          description: 'Standard x402 Base64-encoded payment payload.',
+          required: true,
+          schema: { type: 'string' },
+        },
+      },
       content: json(paymentResultSchema),
     },
     202: {

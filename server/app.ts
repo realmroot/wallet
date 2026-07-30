@@ -4,6 +4,8 @@ import {
   grantActionSchema,
   inspectBudgetRequestSchema,
   type PaymentRequired,
+  type SettlementResponse,
+  paymentRequiredSchema,
   settlementResponseSchema,
   updateGrantSchema,
   updateWalletSchema,
@@ -62,6 +64,12 @@ import {
 } from './agent-policy'
 import { verifySettlement } from './settlement'
 import { createX402Payment } from './signer'
+import type { PaymentPayload } from '@x402/core/types'
+import {
+  decodePaymentRequiredHeader,
+  decodePaymentResponseHeader,
+  encodePaymentSignatureHeader,
+} from '@x402/core/http'
 import { OpenAPIHono, z } from '@hono/zod-openapi'
 import { zValidator } from '@hono/zod-validator'
 import { Hono, type Context } from 'hono'
@@ -122,7 +130,14 @@ function createApi(agentApi: ReturnType<typeof createAgentApi>) {
     '*',
     cors({
       origin: (origin, c) => (origin === c.env.APP_ORIGIN ? origin : undefined),
-      allowHeaders: ['Authorization', 'Content-Type', 'DPoP', 'Idempotency-Key'],
+      allowHeaders: [
+        'Authorization',
+        'Content-Type',
+        'DPoP',
+        'Idempotency-Key',
+        'PAYMENT-REQUIRED',
+        'PAYMENT-RESPONSE',
+      ],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
       exposeHeaders: ['Link', 'Location', 'PAYMENT-SIGNATURE', 'Retry-After', 'X-Request-Id'],
       maxAge: 86400,
@@ -471,8 +486,14 @@ function createAgentApi() {
         c.env,
         createPaymentAuthorizationRoute.operationId,
       )
-      const paymentRequired = c.req.valid('json')
-      const idempotencyKey = c.req.valid('header')['idempotency-key']
+      const headers = c.req.valid('header')
+      const hasJsonBody = isJsonRequest(c.req.raw)
+      const paymentRequired = paymentRequiredInput(
+        hasJsonBody ? (c.req.valid('json') as PaymentRequired) : undefined,
+        headers['payment-required'],
+        hasJsonBody,
+      )
+      const idempotencyKey = headers['idempotency-key']
       const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN)
       if (budget.status !== 'approved') {
         setBudgetRequestHeaders(c, budget)
@@ -493,6 +514,10 @@ function createAgentApi() {
         idempotencyKey,
       })
       if (reservation.kind === 'signed') {
+        c.header(
+          'PAYMENT-SIGNATURE',
+          encodePaymentSignatureHeader(reservation.paymentPayload as PaymentPayload),
+        )
         return c.json(
           {
             paymentId: reservation.paymentId,
@@ -519,6 +544,7 @@ function createAgentApi() {
           targetId: reservation.paymentId,
           metadata: { amount: accepted.amount, resource: paymentRequired.resource.url },
         })
+        c.header('PAYMENT-SIGNATURE', encodePaymentSignatureHeader(payload))
         return c.json(
           {
             paymentId: reservation.paymentId,
@@ -556,7 +582,12 @@ function createAgentApi() {
         confirmPaymentSettlementRoute.operationId,
       )
       const paymentId = c.req.valid('param').paymentId
-      const response = c.req.valid('json')
+      const hasJsonBody = isJsonRequest(c.req.raw)
+      const response = paymentResponseInput(
+        hasJsonBody ? (c.req.valid('json') as SettlementResponse) : undefined,
+        c.req.valid('header')['payment-response'],
+        hasJsonBody,
+      )
       const payment = await getPaymentForSettlement(c.env.DB, paymentId, principal)
       await verifySettlement(c.env, payment, response)
       if (response.success) {
@@ -611,6 +642,11 @@ function agentApiDocument(origin: string) {
       paymentOperationId: agentOperations.createPaymentAuthorization.operationId,
       settlementOperationId: agentOperations.confirmPaymentSettlement.operationId,
       trigger: 'HTTP 402 Payment Required',
+      headers: {
+        paymentRequired: 'PAYMENT-REQUIRED',
+        paymentSignature: 'PAYMENT-SIGNATURE',
+        paymentResponse: 'PAYMENT-RESPONSE',
+      },
     },
     'x-agent-auth': {
       scheme: 'DPoP',
@@ -650,6 +686,53 @@ function setBudgetRequestHeaders(
   if (!request.requestId) throw new Error('A pending budget request must have a request ID.')
   c.header('Location', `${c.env.APP_ORIGIN}/api/agent/budget-requests/${request.requestId}`)
   c.header('Retry-After', String(request.pollIntervalSeconds ?? 3))
+}
+
+function paymentRequiredInput(
+  json: PaymentRequired | undefined,
+  header: string | undefined,
+  hasJsonBody: boolean,
+) {
+  if (hasJsonBody && header) {
+    throw badRequest('Provide PaymentRequired as JSON or PAYMENT-REQUIRED, not both.')
+  }
+  if (!json && !header) throw badRequest('PaymentRequired JSON or PAYMENT-REQUIRED is required.')
+  if (json) return json
+  return decodeX402Header(header!, decodePaymentRequiredHeader, paymentRequiredSchema, 'PAYMENT-REQUIRED')
+}
+
+function paymentResponseInput(
+  json: SettlementResponse | undefined,
+  header: string | undefined,
+  hasJsonBody: boolean,
+) {
+  if (hasJsonBody && header) {
+    throw badRequest('Provide SettleResponse as JSON or PAYMENT-RESPONSE, not both.')
+  }
+  if (!json && !header) throw badRequest('SettleResponse JSON or PAYMENT-RESPONSE is required.')
+  if (json) return json
+  return decodeX402Header(header!, decodePaymentResponseHeader, settlementResponseSchema, 'PAYMENT-RESPONSE')
+}
+
+function decodeX402Header<T>(
+  header: string,
+  decode: (value: string) => unknown,
+  schema: z.ZodType<T>,
+  name: string,
+) {
+  let decoded: unknown
+  try {
+    decoded = decode(header)
+  } catch {
+    throw badRequest(`${name} is not valid x402 Base64 JSON.`)
+  }
+  const result = schema.safeParse(decoded)
+  if (!result.success) throw badRequest(`${name} does not contain a valid x402 object.`)
+  return result.data
+}
+
+function isJsonRequest(request: Request) {
+  return request.headers.get('content-type')?.split(';', 1)[0]?.trim() === 'application/json'
 }
 
 function agentApiOpenApi(

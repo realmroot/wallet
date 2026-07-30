@@ -93,9 +93,9 @@ This produces a compact, resource-oriented command surface:
 restish agent-wallet wallet show
 restish agent-wallet budget request
 restish agent-wallet budget status <request-id>
-restish agent-wallet payment authorize <idempotency-key>
+restish agent-wallet payment authorize <idempotency-key> --payment-required <value>
 restish agent-wallet payment get <payment-id>
-restish agent-wallet payment confirm <payment-id>
+restish agent-wallet payment confirm <payment-id> --payment-response <value>
 ```
 
 Before requesting a signature, an Agent can run `restish agent-wallet wallet show` (the
@@ -105,17 +105,19 @@ expose the controller profile, CDP user identifier, wallet balance, or direct
 database state.
 
 Realmroot's Restish adapter owns the Agent identity, target access token, and
-grant-specific DPoP key. The Agent calls its original business API, passes an
-unmodified `PaymentRequired` response to `restish agent-wallet payment authorize`, together with a
-stable `Idempotency-Key`. It completes controller budget approval when the
-Wallet returns `202`, then retries the business request with the returned
-payment payload encoded with the x402 standard Base64 HTTP encoding in
-`PAYMENT-SIGNATURE`.
+grant-specific DPoP key. The Agent calls its original business API and forwards
+the `PAYMENT-REQUIRED` response header to
+`restish agent-wallet payment authorize`, together with a stable
+`Idempotency-Key`. It completes controller budget approval when the Wallet
+returns `202`, then retries the business request with the Wallet's returned
+`PAYMENT-SIGNATURE` header. JSON request and response fields remain available
+for clients that do not expose HTTP headers directly.
 
-After the business request succeeds, the Agent decodes its `PAYMENT-RESPONSE`
-header and passes that object to `restish agent-wallet payment confirm`. The Wallet verifies a
-successful Base Sepolia receipt contains the exact USDC transfer from the
-user's wallet to the requested merchant before marking the payment settled.
+After the business request succeeds, the Agent forwards its
+`PAYMENT-RESPONSE` header to `restish agent-wallet payment confirm`. The Wallet
+verifies a successful Base Sepolia receipt contains the exact USDC transfer
+from the user's wallet to the requested merchant before marking the payment
+settled.
 At any point the Agent can recover the current state through
 `restish agent-wallet payment get` without access to Wallet storage or
 signature material.
