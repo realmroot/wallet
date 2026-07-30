@@ -1,0 +1,61 @@
+{
+  "name": "agent-wallet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "agent-wallet": "./cli/agent-wallet.mjs"
+  },
+  "packageManager": "pnpm@10.30.2",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "wrangler types worker-configuration.d.ts --include-runtime=false --env-file .dev.vars.example && tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "wrangler d1 migrations apply agent-wallet --local",
+    "e2e": "playwright test",
+    "demo:merchant": "node examples/paid-service.mjs",
+    "demo:merchant:real": "node examples/paid-service-real.mjs",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@coinbase/cdp-hooks": "0.0.119",
+    "@coinbase/cdp-react": "0.0.119",
+    "@coinbase/cdp-sdk": "1.54.0",
+    "@hono/node-server": "^2.0.12",
+    "@x402/core": "2.20.0",
+    "@x402/evm": "2.20.0",
+    "@x402/hono": "2.20.0",
+    "hono": "4.12.32",
+    "jose": "6.2.4",
+    "oauth4webapi": "3.8.6",
+    "react": "19.2.5",
+    "react-dom": "19.2.5",
+    "viem": "2.48.11",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vite-plugin": "1.48.0",
+    "@cloudflare/vitest-pool-workers": "0.19.0",
+    "@cloudflare/workers-types": "5.20260722.1",
+    "@playwright/test": "1.59.1",
+    "@types/react": "19.2.14",
+    "@types/react-dom": "19.2.3",
+    "@vitejs/plugin-react": "6.0.1",
+    "typescript": "6.0.3",
+    "vite": "8.0.11",
+    "vitest": "4.1.2",
+    "wrangler": "4.115.0"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
+  }
+}

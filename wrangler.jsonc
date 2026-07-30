@@ -1,0 +1,39 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "agent-wallet",
+  "main": "server/worker.ts",
+  "compatibility_date": "2026-06-02",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/client",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api", "/api/*", "/healthz"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "agent-wallet",
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "./migrations"
+    }
+  ],
+  "vars": {
+    "APP_ORIGIN": "http://localhost:5174",
+    "OIDC_ISSUER": "http://localhost:5173/api/auth",
+    "OIDC_CLIENT_ID": "agent-wallet-web",
+    "OIDC_AUDIENCE": "http://localhost:5174/api",
+    "WALLET_NETWORK": "eip155:84532",
+    "SIGNER_MODE": "mock"
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "head_sampling_rate": 1
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.01
+    }
+  }
+}
