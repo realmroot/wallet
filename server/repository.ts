@@ -166,6 +166,29 @@ export async function overview(
   }
 }
 
+export async function getAgentWalletState(db: D1Database, principal: AgentPrincipal) {
+  const row = await findUser(db, principal.owner.issuer, principal.owner.subject)
+  if (!row) return { user: null, grant: null }
+
+  const grant = await db
+    .prepare(
+      `SELECT id, agent_issuer, agent_subject, name, total_limit, spent_total,
+              per_transaction_limit, period_kind, period_limit, period_spent,
+              period_started_at, allowed_origins, allowed_recipients, expires_at,
+              paused_at, revoked_at
+       FROM agent_grant
+       WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND revoked_at IS NULL`,
+    )
+    .bind(row.id, principal.agent.issuer, principal.agent.subject)
+    .first<GrantRow & { period_started_at: string }>()
+  if (!grant) return { user: toUser(row), grant: null }
+
+  if (shouldResetPeriod(grant.period_kind, grant.period_started_at)) {
+    grant.period_spent = '0'
+  }
+  return { user: toUser(row), grant: toGrant(grant) }
+}
+
 export async function updateWallet(
   db: D1Database,
   userId: string,

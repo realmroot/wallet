@@ -3,6 +3,7 @@ import { cleanupExpiredReservations } from '../server/repository'
 import { hasMatchingDeveloperJwtIdentity } from '../server/cdp'
 import { hasMatchingUsdcTransfer } from '../server/settlement'
 import { withExplicitEip712Domain } from '../server/signer'
+import { buildAgentWallet } from '../server/agent-wallet'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
 import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
@@ -14,6 +15,7 @@ const agentIssuer = humanIssuer
 const audience = 'https://wallet.test/api'
 const walletUrl = 'https://wallet.test/api/x402/payments'
 const budgetRequestsUrl = 'https://wallet.test/api/agent/budget-requests'
+const agentWalletUrl = 'https://wallet.test/api/agent/wallet'
 const ownerSubject = 'user-1'
 const agentSubject = 'agent-1'
 const mockSignerPrivateKey =
@@ -115,6 +117,61 @@ describe('Agent Wallet', () => {
     expect(hasMatchingUsdcTransfer([log], { ...payment, amount: '25001' })).toBe(false)
   })
 
+  it('calculates the maximum amount the current Agent can pay', () => {
+    const wallet = buildAgentWallet(
+      {
+        WALLET_NETWORK: 'eip155:84532',
+      } as Env,
+      {
+        id: 'user-1',
+        issuer: humanIssuer,
+        subject: ownerSubject,
+        email: null,
+        cdpUserId: 'cdp-user-1',
+        walletAddress,
+        delegationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        pausedAt: null,
+      },
+      {
+        id: 'grant-1',
+        agentIssuer,
+        agentSubject,
+        name: 'Test Agent',
+        totalLimit: '100000',
+        spentTotal: '20000',
+        perTransactionLimit: '50000',
+        periodKind: 'daily',
+        periodLimit: '40000',
+        periodSpent: '15000',
+        allowedOrigins: [],
+        allowedRecipients: [],
+        expiresAt: null,
+        pausedAt: null,
+        revokedAt: null,
+      },
+      {
+        balances: [
+          {
+            symbol: 'USDC',
+            amount: '30000',
+            decimals: 6,
+            contractAddress: getDefaultAsset('eip155:84532').address,
+          },
+        ],
+        balanceStatus: 'available',
+        faucetAvailable: false,
+      },
+    )
+
+    expect(wallet.payment).toEqual({
+      ready: true,
+      maximumAmount: '25000',
+      blockers: [],
+    })
+    expect(wallet.budget?.remaining.total).toBe('80000')
+    expect(wallet.budget?.remaining.period).toBe('25000')
+  })
+
   it('reports deployment readiness', async () => {
     const response = await SELF.fetch('https://wallet.test/readyz')
     expect(response.status).toBe(200)
@@ -159,9 +216,27 @@ describe('Agent Wallet', () => {
         },
       },
       paths: {
+        '/agent/wallet': {
+          get: {
+            operationId: 'getAgentWallet',
+            tags: ['wallet'],
+            'x-cli-name': 'show',
+            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
+          },
+        },
         '/x402/payments': {
           post: {
-            operationId: 'createX402Payment',
+            operationId: 'createPaymentAuthorization',
+            tags: ['payment'],
+            'x-cli-name': 'authorize',
+            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
+          },
+        },
+        '/x402/payments/{id}/settlement': {
+          put: {
+            operationId: 'confirmPaymentSettlement',
+            tags: ['payment'],
+            'x-cli-name': 'confirm',
             security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
           },
         },
@@ -176,7 +251,7 @@ describe('Agent Wallet', () => {
       openapi: '3.1.0',
       paths: {
         '/x402/payments': {
-          post: { operationId: 'createX402Payment' },
+          post: { operationId: 'createPaymentAuthorization' },
         },
       },
     })
@@ -190,22 +265,67 @@ describe('Agent Wallet', () => {
       openapi: '3.1.0',
       'x-x402': {
         role: 'payer',
-        paymentOperationId: 'createX402Payment',
+        paymentOperationId: 'createPaymentAuthorization',
+        settlementOperationId: 'confirmPaymentSettlement',
       },
       paths: {
         '/x402/payments': {
-          post: { operationId: 'createX402Payment' },
+          post: { operationId: 'createPaymentAuthorization' },
+        },
+        '/x402/payments/{id}/settlement': {
+          put: { operationId: 'confirmPaymentSettlement' },
         },
       },
     })
     expect(Object.keys(document.paths).sort()).toEqual([
       '/agent/budget-requests',
       '/agent/budget-requests/{id}',
+      '/agent/wallet',
       '/x402/payments',
       '/x402/payments/{id}/settlement',
     ])
 
     expect((await SELF.fetch('https://wallet.test/api/user-openapi.json')).status).toBe(404)
+  })
+
+  it('shows only the Wallet delegated to the current Agent', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const response = await SELF.fetch(agentWalletUrl, {
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, agentWalletUrl, 'GET'),
+      },
+    })
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    const status = await response.json()
+    expect(status).toMatchObject({
+      network: 'eip155:84532',
+      delegation: {
+        status: 'active',
+      },
+      budget: {
+        name: 'Local Codex',
+        limits: {
+          total: '1000000',
+          perPayment: '100000',
+          period: {
+            kind: 'daily',
+            amount: '250000',
+          },
+        },
+      },
+      payment: {
+        ready: false,
+        maximumAmount: '0',
+        blockers: ['insufficient_funds'],
+      },
+    })
+    expect(JSON.stringify(status)).not.toContain('cdp-user-1')
+    expect(JSON.stringify(status)).not.toContain('owner@example.com')
+    expect(JSON.stringify(status)).not.toContain(ownerSubject)
   })
 
   it('applies API security, CORS, body limits, and schema validation middleware', async () => {
@@ -305,6 +425,10 @@ describe('Agent Wallet', () => {
     const agentToken = await createAgentToken()
     const request = await pay(agentToken, paymentRequired('25000'))
     expect(request.status).toBe(202)
+    expect(request.headers.get('location')).toMatch(
+      /^https:\/\/wallet\.test\/api\/agent\/budget-requests\/[0-9a-f-]+$/,
+    )
+    expect(request.headers.get('retry-after')).toBe('3')
     const pending = await request.json<{ id: string; status: string; approvalUrl: string }>()
     expect(pending.status).toBe('pending')
     expect(pending.approvalUrl).toContain('/authorize#request=')
@@ -380,10 +504,10 @@ describe('Agent Wallet', () => {
     const transaction = `0x${'ab'.repeat(32)}`
     const url = `${walletUrl}/${payment.paymentId}/settlement`
     const response = await SELF.fetch(url, {
-      method: 'POST',
+      method: 'PUT',
       headers: {
         authorization: `DPoP ${agentToken}`,
-        dpop: await dpopProof(agentToken, url, 'POST'),
+        dpop: await dpopProof(agentToken, url, 'PUT'),
         'content-type': 'application/json',
       },
       body: JSON.stringify({

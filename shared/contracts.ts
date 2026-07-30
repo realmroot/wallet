@@ -12,6 +12,17 @@ const merchantOrigin = z
   .url()
   .refine((value) => new URL(value).origin === value, 'Merchant entries must be URL origins without paths.')
   .openapi({ example: 'https://api.example.com' })
+const resourceId = z
+  .uuid()
+  .openapi({ description: 'Stable resource identifier.', example: '019c12e0-f8e0-7b71-87fd-43a523f07bd4' })
+const usedAtomicAmount = z
+  .string()
+  .regex(/^\d{1,15}$/)
+  .openapi({ description: 'Atomic USDC amount, including zero.', example: '25000' })
+const networkId = z
+  .string()
+  .regex(/^[a-z0-9]+:[A-Za-z0-9._-]+$/)
+  .openapi({ description: 'CAIP-2 network identifier.', example: 'eip155:84532' })
 
 export const paymentRequiredSchema = z
   .object({
@@ -95,12 +106,17 @@ export type BudgetRequestStatus = z.infer<typeof budgetRequestStatusSchema>
 
 export const budgetRequestStateSchema = z
   .object({
-    id: z.string(),
+    id: resourceId,
     status: budgetRequestStatusSchema,
     expiresAt: z.iso.datetime(),
-    grantId: z.string().nullable(),
+    grantId: resourceId.nullable(),
     approvalUrl: z.url().optional(),
-    interval: z.number().int().positive().optional(),
+    interval: z
+      .number()
+      .int()
+      .positive()
+      .openapi({ description: 'Recommended polling interval in seconds.', example: 3 })
+      .optional(),
   })
   .openapi('BudgetRequest')
 export type BudgetRequestState = z.infer<typeof budgetRequestStateSchema>
@@ -155,6 +171,71 @@ export const agentGrantSchema = z
   })
   .openapi('AgentGrant')
 export type AgentGrant = z.infer<typeof agentGrantSchema>
+
+export const agentWalletBlockerSchema = z.enum([
+  'wallet_not_provisioned',
+  'wallet_paused',
+  'delegation_inactive',
+  'budget_not_granted',
+  'budget_paused',
+  'budget_expired',
+  'funding_unavailable',
+  'insufficient_funds',
+  'total_limit_reached',
+  'period_limit_reached',
+])
+export type AgentWalletBlocker = z.infer<typeof agentWalletBlockerSchema>
+
+export const agentWalletSchema = z
+  .object({
+    network: networkId,
+    asset: z.object({
+      symbol: z.string().openapi({ example: 'USDC' }),
+      contractAddress: evmAddress,
+      decimals: z.number().int().nonnegative().openapi({ example: 6 }),
+    }),
+    delegation: z.object({
+      status: z.enum(['active', 'inactive']),
+      expiresAt: z.iso.datetime().nullable(),
+    }),
+    budget: z
+      .object({
+        id: resourceId,
+        name: z.string().openapi({ example: 'Build Agent' }),
+        status: z.enum(['active', 'paused', 'expired']),
+        limits: z.object({
+          total: atomicAmount,
+          perPayment: atomicAmount,
+          period: z.object({
+            kind: z.enum(['none', 'daily', 'monthly']),
+            amount: atomicAmount.nullable(),
+          }),
+        }),
+        usage: z.object({
+          total: usedAtomicAmount,
+          period: usedAtomicAmount,
+        }),
+        remaining: z.object({
+          total: usedAtomicAmount,
+          period: usedAtomicAmount.nullable(),
+        }),
+        restrictions: z.object({
+          merchantOrigins: z.array(merchantOrigin),
+          recipients: z.array(evmAddress),
+        }),
+        expiresAt: z.iso.datetime().nullable(),
+      })
+      .nullable(),
+    payment: z.object({
+      ready: z.boolean(),
+      maximumAmount: usedAtomicAmount
+        .nullable()
+        .openapi({ description: 'Maximum currently payable atomic USDC amount, or null when unavailable.' }),
+      blockers: z.array(agentWalletBlockerSchema),
+    }),
+  })
+  .openapi('AgentWallet')
+export type AgentWallet = z.infer<typeof agentWalletSchema>
 
 export const updateGrantSchema = budgetPolicy.openapi('UpdateGrant')
 export type UpdateGrantInput = z.infer<typeof updateGrantSchema>
@@ -228,7 +309,7 @@ export type WalletOverview = z.infer<typeof walletOverviewSchema>
 
 export const paymentResultSchema = z
   .object({
-    paymentId: z.string(),
+    paymentId: resourceId,
     paymentPayload: z.record(z.string(), z.unknown()),
     replayed: z.boolean(),
   })
@@ -251,7 +332,7 @@ export type SettlementResponse = z.infer<typeof settlementResponseSchema>
 
 export const settlementResultSchema = z
   .object({
-    paymentId: z.string(),
+    paymentId: resourceId,
     status: z.enum(['signed', 'settled']),
     transactionHash: z.string().nullable(),
   })

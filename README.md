@@ -76,8 +76,9 @@ The API advertises the document with an RFC 8631 `service-desc` link. Restish or
 operations directly:
 
 ```sh
-restish api connect wallet https://wallet.example.com --replace --yes
-restish wallet --help
+restish api connect agent-wallet https://wallet.example.com --replace --yes
+restish api set agent-wallet 'command_layout: tags'
+restish agent-wallet --help
 ```
 
 The document includes Restish's declarative `x-cli-config` mapping for the
@@ -85,16 +86,32 @@ standard DPoP security scheme. It only selects the generic Realmroot target
 authentication adapter; Wallet-specific commands or credentials are not
 installed.
 
+This produces a compact, resource-oriented command surface:
+
+```text
+restish agent-wallet wallet show
+restish agent-wallet budget request
+restish agent-wallet budget status <request-id>
+restish agent-wallet payment authorize <idempotency-key>
+restish agent-wallet payment confirm <payment-id>
+```
+
+Before requesting a signature, an Agent can run `restish agent-wallet wallet show` (the
+`GET /agent/wallet` operation) to read its delegated budget, restrictions,
+payment blockers, and maximum payable atomic USDC amount. The response does not
+expose the controller profile, CDP user identifier, wallet balance, or direct
+database state.
+
 Realmroot's Restish adapter owns the Agent identity, target access token, and
 grant-specific DPoP key. The Agent calls its original business API, passes an
-unmodified `PaymentRequired` response to `createX402Payment`, together with a
+unmodified `PaymentRequired` response to `restish agent-wallet payment authorize`, together with a
 stable `Idempotency-Key`. It completes controller budget approval when the
 Wallet returns `202`, then retries the business request with the returned
 payment payload encoded with the x402 standard Base64 HTTP encoding in
 `PAYMENT-SIGNATURE`.
 
 After the business request succeeds, the Agent decodes its `PAYMENT-RESPONSE`
-header and passes that object to `reportX402Settlement`. The Wallet verifies a
+header and passes that object to `restish agent-wallet payment confirm`. The Wallet verifies a
 successful Base Sepolia receipt contains the exact USDC transfer from the
 user's wallet to the requested merchant before marking the payment settled.
 Reusing the same idempotency key returns the same signed payload without

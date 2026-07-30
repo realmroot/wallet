@@ -1,5 +1,6 @@
 import {
   apiErrorSchema,
+  agentWalletSchema,
   budgetRequestStateSchema,
   createBudgetRequestSchema,
   paymentRequiredSchema,
@@ -13,11 +14,14 @@ const json = <T extends z.ZodType>(schema: T) => ({
   'application/json': { schema },
 })
 
-const errorResponses = {
+const badRequestResponse = {
   400: {
     description: 'The request is invalid.',
     content: json(apiErrorSchema),
   },
+} as const
+
+const authenticationResponses = {
   401: {
     description: 'Authentication failed.',
     content: json(apiErrorSchema),
@@ -26,18 +30,37 @@ const errorResponses = {
     description: 'The principal is not authorized.',
     content: json(apiErrorSchema),
   },
+} as const
+
+const notFoundResponse = {
   404: {
     description: 'The resource was not found.',
     content: json(apiErrorSchema),
   },
+} as const
+
+const conflictResponse = {
   409: {
     description: 'The request conflicts with current state.',
     content: json(apiErrorSchema),
   },
+} as const
+
+const payloadTooLargeResponse = {
+  413: {
+    description: 'The request body exceeds 64 KiB.',
+    content: json(apiErrorSchema),
+  },
+} as const
+
+const upstreamResponse = {
   502: {
     description: 'An upstream wallet or network service failed.',
     content: json(apiErrorSchema),
   },
+} as const
+
+const internalErrorResponse = {
   500: {
     description: 'The request failed.',
     content: json(apiErrorSchema),
@@ -45,8 +68,10 @@ const errorResponses = {
 } as const
 
 const idParamsSchema = z.object({
-  id: z.string().min(1).openapi({
+  id: z.uuid().openapi({
     param: { name: 'id', in: 'path' },
+    description: 'Resource identifier.',
+    example: '019c12e0-f8e0-7b71-87fd-43a523f07bd4',
   }),
 })
 
@@ -61,9 +86,10 @@ export const createBudgetRequestRoute = createRoute({
   method: 'post',
   path: '/agent/budget-requests',
   operationId: 'createBudgetRequest',
-  tags: ['Agent'],
+  tags: ['budget'],
+  'x-cli-name': 'request',
   security: [{ DPoP: [] }],
-  summary: 'Request a spending budget for the current Agent',
+  summary: 'Request a budget',
   request: {
     body: {
       required: true,
@@ -76,20 +102,55 @@ export const createBudgetRequestRoute = createRoute({
       content: json(budgetRequestStateSchema),
     },
     201: {
-      description: 'Controller approval is required.',
+      description: 'The budget request was created and requires controller approval.',
+      headers: {
+        Location: {
+          description: 'URL of the created budget request.',
+          schema: { type: 'string', format: 'uri' },
+        },
+        'Retry-After': {
+          description: 'Recommended polling delay in seconds.',
+          schema: { type: 'string', pattern: '^\\d+$' },
+        },
+      },
       content: json(budgetRequestStateSchema),
     },
-    ...errorResponses,
+    ...badRequestResponse,
+    ...authenticationResponses,
+    ...payloadTooLargeResponse,
+    ...internalErrorResponse,
   },
 })
 
-export const reportSettlementRoute = createRoute({
-  method: 'post',
-  path: '/x402/payments/{id}/settlement',
-  operationId: 'reportX402Settlement',
-  tags: ['Agent'],
+export const getAgentWalletRoute = createRoute({
+  method: 'get',
+  path: '/agent/wallet',
+  operationId: 'getAgentWallet',
+  tags: ['wallet'],
+  'x-cli-name': 'show',
   security: [{ DPoP: [] }],
-  summary: 'Record and verify the merchant x402 settlement response',
+  summary: 'Show the current Agent wallet',
+  description:
+    'Returns the authenticated Agent’s delegated Wallet budget, restrictions, readiness, and maximum payable atomic USDC amount without exposing controller account data.',
+  responses: {
+    200: {
+      description: 'The Wallet view delegated to the authenticated Agent.',
+      content: json(agentWalletSchema),
+    },
+    ...authenticationResponses,
+    ...upstreamResponse,
+    ...internalErrorResponse,
+  },
+})
+
+export const confirmPaymentSettlementRoute = createRoute({
+  method: 'put',
+  path: '/x402/payments/{id}/settlement',
+  operationId: 'confirmPaymentSettlement',
+  tags: ['payment'],
+  'x-cli-name': 'confirm',
+  security: [{ DPoP: [] }],
+  summary: 'Confirm a payment settlement',
   description:
     'After retrying the business request, decode its PAYMENT-RESPONSE header with the x402 standard Base64 HTTP decoder and submit the resulting SettleResponse here. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
   request: {
@@ -104,7 +165,13 @@ export const reportSettlementRoute = createRoute({
       description: 'The settlement result was recorded.',
       content: json(settlementResultSchema),
     },
-    ...errorResponses,
+    ...badRequestResponse,
+    ...authenticationResponses,
+    ...notFoundResponse,
+    ...conflictResponse,
+    ...payloadTooLargeResponse,
+    ...upstreamResponse,
+    ...internalErrorResponse,
   },
 })
 
@@ -112,11 +179,12 @@ export const getBudgetRequestRoute = createRoute({
   method: 'get',
   path: '/agent/budget-requests/{id}',
   operationId: 'getBudgetRequest',
-  tags: ['Agent'],
+  tags: ['budget'],
+  'x-cli-name': 'status',
   security: [{ DPoP: [] }],
-  summary: 'Read an Agent budget approval request',
+  summary: 'Show a budget request',
   description:
-    'Poll at the returned interval until status is approved, denied, or expired. Retry createX402Payment only after approval.',
+    'Poll at the returned interval until status is approved, denied, or expired. Retry payment authorization only after approval.',
   request: {
     params: idParamsSchema,
   },
@@ -125,19 +193,23 @@ export const getBudgetRequestRoute = createRoute({
       description: 'Current budget approval state.',
       content: json(budgetRequestStateSchema),
     },
-    ...errorResponses,
+    ...badRequestResponse,
+    ...authenticationResponses,
+    ...notFoundResponse,
+    ...internalErrorResponse,
   },
 })
 
-export const createX402PaymentRoute = createRoute({
+export const createPaymentAuthorizationRoute = createRoute({
   method: 'post',
   path: '/x402/payments',
-  operationId: 'createX402Payment',
-  tags: ['Agent'],
+  operationId: 'createPaymentAuthorization',
+  tags: ['payment'],
+  'x-cli-name': 'authorize',
   security: [{ DPoP: [] }],
-  summary: 'Create an x402 payment for a PaymentRequired response',
+  summary: 'Authorize an x402 payment',
   description:
-    'Pass the unmodified x402 PaymentRequired object returned by a business API. On 200, encode paymentPayload with the x402 standard Base64 HTTP encoder in PAYMENT-SIGNATURE and retry the original business request. On 202, open approvalUrl for the controller, poll getBudgetRequest using id, and retry this operation after approval.',
+    'Pass the unmodified x402 PaymentRequired object returned by a business API. On 200, encode paymentPayload with the x402 standard Base64 HTTP encoder in PAYMENT-SIGNATURE and retry the original business request. On 202, open approvalUrl for the controller, poll the budget request, and retry this operation after approval.',
   request: {
     headers: idempotencyHeadersSchema,
     body: {
@@ -152,9 +224,24 @@ export const createX402PaymentRoute = createRoute({
     },
     202: {
       description:
-        'Controller approval is required. Open approvalUrl, poll getBudgetRequest, then retry createX402Payment.',
+        'Controller approval is required. Open approvalUrl, poll the budget request, then retry payment authorization.',
+      headers: {
+        Location: {
+          description: 'URL of the budget request awaiting approval.',
+          schema: { type: 'string', format: 'uri' },
+        },
+        'Retry-After': {
+          description: 'Recommended polling delay in seconds.',
+          schema: { type: 'string', pattern: '^\\d+$' },
+        },
+      },
       content: json(budgetRequestStateSchema),
     },
-    ...errorResponses,
+    ...badRequestResponse,
+    ...authenticationResponses,
+    ...conflictResponse,
+    ...payloadTooLargeResponse,
+    ...upstreamResponse,
+    ...internalErrorResponse,
   },
 })

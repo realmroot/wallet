@@ -33,6 +33,7 @@ import {
   failPayment,
   getBudgetRequestForAgent,
   getBudgetRequestForApproval,
+  getAgentWalletState,
   getOrCreateUser,
   getPaymentForSettlement,
   overview,
@@ -45,11 +46,13 @@ import {
   updateWallet,
 } from './repository'
 import {
+  confirmPaymentSettlementRoute,
   createBudgetRequestRoute,
-  createX402PaymentRoute,
+  createPaymentAuthorizationRoute,
+  getAgentWalletRoute,
   getBudgetRequestRoute,
-  reportSettlementRoute,
 } from './routes'
+import { buildAgentWallet } from './agent-wallet'
 import { verifySettlement } from './settlement'
 import { createX402Payment } from './signer'
 import { OpenAPIHono, z } from '@hono/zod-openapi'
@@ -114,7 +117,7 @@ function createApi(agentApi: ReturnType<typeof createAgentApi>) {
       origin: (origin, c) => (origin === c.env.APP_ORIGIN ? origin : undefined),
       allowHeaders: ['Authorization', 'Content-Type', 'DPoP', 'Idempotency-Key'],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      exposeHeaders: ['Link', 'PAYMENT-SIGNATURE', 'X-Request-Id'],
+      exposeHeaders: ['Link', 'Location', 'PAYMENT-SIGNATURE', 'Retry-After', 'X-Request-Id'],
       maxAge: 86400,
     }),
   )
@@ -416,22 +419,48 @@ function createAgentApi() {
   })
 
   const routes = api
+    .openapi(getAgentWalletRoute, async (c) => {
+      const principal = await authenticateAgent(c.req.raw, c.env)
+      const state = await getAgentWalletState(c.env.DB, principal)
+      const walletRuntime =
+        state.user && state.grant ? await getWalletRuntime(c.env, state.user) : null
+      if (
+        walletRuntime?.delegationExpiresAt &&
+        walletRuntime.delegationExpiresAt !== state.user?.delegationExpiresAt
+      ) {
+        await updateWallet(c.env.DB, state.user!.id, {
+          cdpUserId: state.user!.cdpUserId!,
+          address: state.user!.walletAddress!,
+          delegationExpiresAt: walletRuntime.delegationExpiresAt,
+        })
+        state.user!.delegationExpiresAt = walletRuntime.delegationExpiresAt
+      }
+      return c.json(
+        buildAgentWallet(c.env, state.user, state.grant, walletRuntime?.runtime ?? null),
+        200,
+      )
+    })
     .openapi(createBudgetRequestRoute, async (c) => {
       const principal = await authenticateAgent(c.req.raw, c.env)
       const input = c.req.valid('json')
       const result = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN, input.name)
-      return result.status === 'pending' ? c.json(result, 201) : c.json(result, 200)
+      if (result.status !== 'pending') return c.json(result, 200)
+      setBudgetRequestHeaders(c, result)
+      return c.json(result, 201)
     })
     .openapi(getBudgetRequestRoute, async (c) => {
       const principal = await authenticateAgent(c.req.raw, c.env)
       return c.json(await getBudgetRequestForAgent(c.env.DB, c.req.valid('param').id, principal), 200)
     })
-    .openapi(createX402PaymentRoute, async (c) => {
+    .openapi(createPaymentAuthorizationRoute, async (c) => {
       const principal = await authenticateAgent(c.req.raw, c.env)
       const paymentRequired = c.req.valid('json')
       const idempotencyKey = c.req.valid('header')['idempotency-key']
       const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_ORIGIN)
-      if (budget.status !== 'approved') return c.json(budget, 202)
+      if (budget.status !== 'approved') {
+        setBudgetRequestHeaders(c, budget)
+        return c.json(budget, 202)
+      }
 
       const accepted = selectRequirement(paymentRequired, c.env)
       const requirementHash = await hashRequirement(paymentRequired)
@@ -496,7 +525,7 @@ function createAgentApi() {
         throw error
       }
     })
-    .openapi(reportSettlementRoute, async (c) => {
+    .openapi(confirmPaymentSettlementRoute, async (c) => {
       const principal = await authenticateAgent(c.req.raw, c.env)
       const paymentId = c.req.valid('param').id
       const response = c.req.valid('json')
@@ -541,14 +570,18 @@ function agentApiDocument(origin: string) {
       title: 'Agent Wallet API',
       version: '1.0.0',
       description:
-        'An x402 payer for delegated Agents. When a business API returns HTTP 402, call createX402Payment with its PaymentRequired object and a stable Idempotency-Key. Encode the signed payload with the standard x402 Base64 HTTP encoder, retry the business API, then decode and submit its PAYMENT-RESPONSE to reportX402Settlement.',
+        'A DPoP-protected x402 payer for delegated Agents. Inspect the delegated Wallet, request a budget, authorize payments, and confirm merchant settlements.',
     },
     servers: [{ url: `${origin}/api` }],
-    tags: [{ name: 'Agent', description: 'DPoP-bound operations used by Agents.' }],
+    tags: [
+      { name: 'wallet', description: 'Inspect the Wallet delegated to the current Agent.' },
+      { name: 'budget', description: 'Request and track controller-approved spending budgets.' },
+      { name: 'payment', description: 'Authorize x402 payments and confirm merchant settlements.' },
+    ],
     'x-x402': {
       role: 'payer',
-      paymentOperationId: 'createX402Payment',
-      settlementOperationId: 'reportX402Settlement',
+      paymentOperationId: 'createPaymentAuthorization',
+      settlementOperationId: 'confirmPaymentSettlement',
       trigger: 'HTTP 402 Payment Required',
     },
     'x-agent-auth': {
@@ -579,6 +612,14 @@ function agentApiDocument(origin: string) {
       },
     },
   }
+}
+
+function setBudgetRequestHeaders(
+  c: Context<AppEnv>,
+  request: { id: string; interval?: number },
+) {
+  c.header('Location', `${c.env.APP_ORIGIN}/api/agent/budget-requests/${request.id}`)
+  c.header('Retry-After', String(request.interval ?? 3))
 }
 
 function agentApiOpenApi(
