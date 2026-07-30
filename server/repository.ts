@@ -1,4 +1,5 @@
 import type {
+  AgentPayment,
   AgentGrant,
   BudgetDecisionInput,
   BudgetRequestDetail,
@@ -903,6 +904,63 @@ export async function getPaymentForSettlement(
     throw conflict('Only a signed payment can accept a settlement response.')
   }
   return payment
+}
+
+export async function getPaymentForAgent(
+  db: D1Database,
+  paymentId: string,
+  principal: AgentPrincipal,
+): Promise<AgentPayment> {
+  const payment = await db
+    .prepare(
+      `SELECT p.id, p.status, p.network, p.asset, p.amount, p.pay_to, p.resource,
+              p.transaction_hash, p.error, p.authorization_expires_at, p.settled_at,
+              p.created_at, p.updated_at
+       FROM payment p
+       JOIN wallet_user u ON u.id = p.user_id
+       JOIN agent_grant g ON g.id = p.grant_id
+       WHERE p.id = ?
+         AND u.issuer = ? AND u.subject = ?
+         AND g.agent_issuer = ? AND g.agent_subject = ?`,
+    )
+    .bind(
+      paymentId,
+      principal.owner.issuer,
+      principal.owner.subject,
+      principal.agent.issuer,
+      principal.agent.subject,
+    )
+    .first<{
+      id: string
+      status: AgentPayment['status']
+      network: string
+      asset: string
+      amount: string
+      pay_to: string
+      resource: string
+      transaction_hash: string | null
+      error: string | null
+      authorization_expires_at: string | null
+      settled_at: string | null
+      created_at: string
+      updated_at: string
+    }>()
+  if (!payment) throw notFound('Payment was not found.')
+  return {
+    paymentId: payment.id,
+    status: payment.status,
+    network: payment.network,
+    asset: payment.asset,
+    amount: payment.amount,
+    payTo: payment.pay_to,
+    resource: payment.resource,
+    transactionHash: payment.transaction_hash,
+    failureReason: payment.error,
+    authorizationExpiresAt: payment.authorization_expires_at,
+    settledAt: payment.settled_at,
+    createdAt: payment.created_at,
+    updatedAt: payment.updated_at,
+  }
 }
 
 export async function recordSettlementFailure(

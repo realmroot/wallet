@@ -186,11 +186,7 @@ describe('Agent Wallet', () => {
       servers: [{ url: 'https://wallet.test/api' }],
       components: {
         securitySchemes: {
-          DPoP: {
-            type: 'http',
-            scheme: 'DPoP',
-          },
-          ScopeCatalog: {
+          RealmrootOAuth: {
             type: 'oauth2',
             flows: {
               authorizationCode: {
@@ -210,7 +206,12 @@ describe('Agent Wallet', () => {
         profiles: {
           default: {
             credentials: {
-              DPoP: {
+              RealmrootOAuth: {
+                auth: {
+                  params: {
+                    scopes: 'wallet:read wallet:budget:request wallet:x402:pay',
+                  },
+                },
                 params: { provider: 'realmroot-target' },
               },
             },
@@ -223,17 +224,17 @@ describe('Agent Wallet', () => {
             operationId: 'getAgentWallet',
             tags: ['wallet'],
             'x-cli-name': 'show',
-            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:read'] }],
+            security: [{ RealmrootOAuth: ['wallet:read'] }],
           },
         },
         '/agent/budget-requests': {
           post: {
-            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:budget:request'] }],
+            security: [{ RealmrootOAuth: ['wallet:budget:request'] }],
           },
         },
         '/agent/budget-requests/{requestId}': {
           get: {
-            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:budget:request'] }],
+            security: [{ RealmrootOAuth: ['wallet:budget:request'] }],
           },
         },
         '/x402/payments': {
@@ -241,7 +242,15 @@ describe('Agent Wallet', () => {
             operationId: 'createPaymentAuthorization',
             tags: ['payment'],
             'x-cli-name': 'authorize',
-            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
+            security: [{ RealmrootOAuth: ['wallet:x402:pay'] }],
+          },
+        },
+        '/x402/payments/{paymentId}': {
+          get: {
+            operationId: 'getPayment',
+            tags: ['payment'],
+            'x-cli-name': 'get',
+            security: [{ RealmrootOAuth: ['wallet:x402:pay'] }],
           },
         },
         '/x402/payments/{paymentId}/settlement': {
@@ -249,7 +258,7 @@ describe('Agent Wallet', () => {
             operationId: 'confirmPaymentSettlement',
             tags: ['payment'],
             'x-cli-name': 'confirm',
-            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
+            security: [{ RealmrootOAuth: ['wallet:x402:pay'] }],
           },
         },
       },
@@ -284,6 +293,9 @@ describe('Agent Wallet', () => {
         '/x402/payments': {
           post: { operationId: 'createPaymentAuthorization' },
         },
+        '/x402/payments/{paymentId}': {
+          get: { operationId: 'getPayment' },
+        },
         '/x402/payments/{paymentId}/settlement': {
           put: { operationId: 'confirmPaymentSettlement' },
         },
@@ -294,6 +306,7 @@ describe('Agent Wallet', () => {
       '/agent/budget-requests/{requestId}',
       '/agent/wallet',
       '/x402/payments',
+      '/x402/payments/{paymentId}',
       '/x402/payments/{paymentId}/settlement',
     ])
 
@@ -546,6 +559,50 @@ describe('Agent Wallet', () => {
     expect((await pay(agentToken, requirement)).status).toBe(200)
     expect((await pay(agentToken, paymentRequired('26000'), idempotencyKey)).status).toBe(409)
     expect((await pay(agentToken, paymentRequired('100001'))).status).toBe(403)
+  })
+
+  it('returns the authenticated Agent payment state without sensitive authorization data', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const payment = await (
+      await pay(agentToken, paymentRequired('25000'))
+    ).json<{ paymentId: string }>()
+    const url = `${walletUrl}/${payment.paymentId}`
+    const response = await SELF.fetch(url, {
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, url, 'GET'),
+      },
+    })
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    const body = await response.json<Record<string, unknown>>()
+    expect(body).toMatchObject({
+      paymentId: payment.paymentId,
+      status: 'signed',
+      network: 'eip155:84532',
+      amount: '25000',
+      payTo: '0x0000000000000000000000000000000000000001',
+      resource: 'https://merchant.test/weather',
+      transactionHash: null,
+      failureReason: null,
+      settledAt: null,
+    })
+    expect(body.authorizationExpiresAt).toEqual(expect.any(String))
+    expect(body.createdAt).toEqual(expect.any(String))
+    expect(body.updatedAt).toEqual(expect.any(String))
+    expect(body).not.toHaveProperty('paymentPayload')
+    expect(body).not.toHaveProperty('idempotencyKey')
+
+    const missingUrl = `${walletUrl}/${crypto.randomUUID()}`
+    const missing = await SELF.fetch(missingUrl, {
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, missingUrl, 'GET'),
+      },
+    })
+    expect(missing.status).toBe(404)
   })
 
   it('records a verified x402 settlement response', async () => {

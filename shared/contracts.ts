@@ -319,6 +319,25 @@ export const paymentResultSchema = z
   })
   .openapi('PaymentResult')
 
+export const agentPaymentSchema = z
+  .object({
+    paymentId: resourceId,
+    status: z.enum(['reserved', 'signed', 'settled', 'failed']),
+    network: networkId,
+    asset: evmAddress,
+    amount: atomicAmount,
+    payTo: evmAddress,
+    resource: z.url(),
+    transactionHash: z.string().nullable(),
+    failureReason: z.string().nullable(),
+    authorizationExpiresAt: z.iso.datetime().nullable(),
+    settledAt: z.iso.datetime().nullable(),
+    createdAt: z.iso.datetime(),
+    updatedAt: z.iso.datetime(),
+  })
+  .openapi('AgentPayment')
+export type AgentPayment = z.infer<typeof agentPaymentSchema>
+
 export const settlementResponseSchema = z
   .object({
     success: z.boolean(),

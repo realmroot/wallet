@@ -81,9 +81,10 @@ restish api set agent-wallet 'command_layout: tags'
 restish agent-wallet --help
 ```
 
-The document includes Restish's declarative `x-cli-config` mapping for the
-standard DPoP security scheme. It only selects the generic Realmroot target
-authentication adapter; Wallet-specific commands or credentials are not
+The document declares one standard Realmroot OAuth security scheme with
+operation-specific scopes. Restish's declarative `x-cli-config` selects the
+generic Realmroot target adapter, which supplies the DPoP-bound access token
+and per-request proof. Wallet-specific commands or credentials are not
 installed.
 
 This produces a compact, resource-oriented command surface:
@@ -93,6 +94,7 @@ restish agent-wallet wallet show
 restish agent-wallet budget request
 restish agent-wallet budget status <request-id>
 restish agent-wallet payment authorize <idempotency-key>
+restish agent-wallet payment get <payment-id>
 restish agent-wallet payment confirm <payment-id>
 ```
 
@@ -114,6 +116,9 @@ After the business request succeeds, the Agent decodes its `PAYMENT-RESPONSE`
 header and passes that object to `restish agent-wallet payment confirm`. The Wallet verifies a
 successful Base Sepolia receipt contains the exact USDC transfer from the
 user's wallet to the requested merchant before marking the payment settled.
+At any point the Agent can recover the current state through
+`restish agent-wallet payment get` without access to Wallet storage or
+signature material.
 Reusing the same idempotency key returns the same signed payload without
 charging the Agent budget twice; a different business purchase uses a new key.
 

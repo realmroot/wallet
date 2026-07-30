@@ -35,6 +35,7 @@ import {
   getBudgetRequestForApproval,
   getAgentWalletState,
   getOrCreateUser,
+  getPaymentForAgent,
   getPaymentForSettlement,
   overview,
   recordAuditEvent,
@@ -51,6 +52,7 @@ import {
   createPaymentAuthorizationRoute,
   getAgentWalletRoute,
   getBudgetRequestRoute,
+  getPaymentRoute,
 } from './routes'
 import { buildAgentWallet } from './agent-wallet'
 import {
@@ -401,14 +403,7 @@ export type HumanApiType = ReturnType<typeof createHumanApi>
 
 function createAgentApi() {
   const api = openApiRouter()
-  api.openAPIRegistry.registerComponent('securitySchemes', 'DPoP', {
-    type: 'http',
-    scheme: 'DPoP',
-    bearerFormat: 'JWT',
-    description:
-      'A Realmroot target access token bound to the public key in the per-request DPoP proof.',
-  })
-  api.openAPIRegistry.registerComponent('securitySchemes', 'ScopeCatalog', {
+  api.openAPIRegistry.registerComponent('securitySchemes', 'RealmrootOAuth', {
     type: 'oauth2',
     flows: {
       authorizationCode: {
@@ -418,7 +413,7 @@ function createAgentApi() {
       },
     },
     description:
-      'OAuth scope catalog used by Realmroot authorization discovery. Runtime requests use the DPoP security scheme.',
+      'Realmroot OAuth access token. Agent requests use a DPoP-bound token and a per-request DPoP proof.',
   })
 
   const routes = api
@@ -547,6 +542,13 @@ function createAgentApi() {
         throw error
       }
     })
+    .openapi(getPaymentRoute, async (c) => {
+      const principal = await authenticateAgent(c.req.raw, c.env, getPaymentRoute.operationId)
+      return c.json(
+        await getPaymentForAgent(c.env.DB, c.req.valid('param').paymentId, principal),
+        200,
+      )
+    })
     .openapi(confirmPaymentSettlementRoute, async (c) => {
       const principal = await authenticateAgent(
         c.req.raw,
@@ -619,7 +621,7 @@ function agentApiDocument(origin: string) {
       profiles: {
         default: {
           credentials: {
-            DPoP: {
+            RealmrootOAuth: {
               auth: {
                 type: 'api-key',
                 params: {
@@ -627,6 +629,7 @@ function agentApiDocument(origin: string) {
                   name: 'Authorization',
                   value: 'DPoP',
                   provider: 'realmroot-target',
+                  scopes: Object.keys(agentScopeCatalog).join(' '),
                 },
               },
               params: {
@@ -655,7 +658,7 @@ function agentApiOpenApi(
   oidcIssuer: string,
 ) {
   const document = api.getOpenAPI31Document(agentApiDocument(origin))
-  const scheme = document.components?.securitySchemes?.ScopeCatalog
+  const scheme = document.components?.securitySchemes?.RealmrootOAuth
   if (scheme && 'flows' in scheme && scheme.flows?.authorizationCode) {
     scheme.flows.authorizationCode.authorizationUrl = `${oidcIssuer}/oauth2/authorize`
     scheme.flows.authorizationCode.tokenUrl = `${oidcIssuer}/oauth2/token`
@@ -663,10 +666,10 @@ function agentApiOpenApi(
   for (const path of Object.values(document.paths ?? {})) {
     for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
       const operation = path?.[method]
-      if (!operation?.security?.some((requirement) => 'DPoP' in requirement)) continue
-      if (!operation.operationId) throw new Error('A DPoP operation must define operationId.')
+      if (!operation?.security?.some((requirement) => 'RealmrootOAuth' in requirement)) continue
+      if (!operation.operationId) throw new Error('An Agent operation must define operationId.')
       const policy = requireAgentOperationPolicy(operation.operationId)
-      operation.security = [{ DPoP: [] }, { ScopeCatalog: [policy.scope] }]
+      operation.security = [{ RealmrootOAuth: [policy.scope] }]
     }
   }
   return document

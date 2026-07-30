@@ -1,4 +1,5 @@
 import {
+  agentPaymentSchema,
   apiErrorSchema,
   agentWalletSchema,
   budgetRequestStateSchema,
@@ -97,7 +98,7 @@ export const createBudgetRequestRoute = createRoute({
   operationId: agentOperations.createBudgetRequest.operationId,
   tags: ['budget'],
   'x-cli-name': 'request',
-  security: [{ DPoP: [] }],
+  security: [{ RealmrootOAuth: [] }],
   summary: 'Request a budget',
   request: {
     body: {
@@ -137,7 +138,7 @@ export const getAgentWalletRoute = createRoute({
   operationId: agentOperations.getWallet.operationId,
   tags: ['wallet'],
   'x-cli-name': 'show',
-  security: [{ DPoP: [] }],
+  security: [{ RealmrootOAuth: [] }],
   summary: 'Show the current Agent wallet',
   description:
     'Returns the authenticated Agent’s delegated Wallet budget, restrictions, readiness, and maximum payable atomic USDC amount without exposing controller account data.',
@@ -158,7 +159,7 @@ export const confirmPaymentSettlementRoute = createRoute({
   operationId: agentOperations.confirmPaymentSettlement.operationId,
   tags: ['payment'],
   'x-cli-name': 'confirm',
-  security: [{ DPoP: [] }],
+  security: [{ RealmrootOAuth: [] }],
   summary: 'Confirm a payment settlement',
   description:
     'After retrying the business request, decode its PAYMENT-RESPONSE header with the x402 standard Base64 HTTP decoder and submit the resulting SettleResponse here. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
@@ -190,7 +191,7 @@ export const getBudgetRequestRoute = createRoute({
   operationId: agentOperations.getBudgetRequest.operationId,
   tags: ['budget'],
   'x-cli-name': 'status',
-  security: [{ DPoP: [] }],
+  security: [{ RealmrootOAuth: [] }],
   summary: 'Show a budget request',
   description:
     'Poll at pollIntervalSeconds until status is approved, denied, or expired. Retry payment authorization only after approval.',
@@ -215,7 +216,7 @@ export const createPaymentAuthorizationRoute = createRoute({
   operationId: agentOperations.createPaymentAuthorization.operationId,
   tags: ['payment'],
   'x-cli-name': 'authorize',
-  security: [{ DPoP: [] }],
+  security: [{ RealmrootOAuth: [] }],
   summary: 'Authorize an x402 payment',
   description:
     'Pass the unmodified x402 PaymentRequired object returned by a business API. On 200, encode paymentPayload with the x402 standard Base64 HTTP encoder in PAYMENT-SIGNATURE and retry the original business request. On 202, open approvalUrl for the controller, poll the budget request, and retry this operation after approval.',
@@ -251,6 +252,31 @@ export const createPaymentAuthorizationRoute = createRoute({
     ...conflictResponse,
     ...payloadTooLargeResponse,
     ...upstreamResponse,
+    ...internalErrorResponse,
+  },
+})
+
+export const getPaymentRoute = createRoute({
+  method: 'get',
+  path: '/x402/payments/{paymentId}',
+  operationId: agentOperations.getPayment.operationId,
+  tags: ['payment'],
+  'x-cli-name': 'get',
+  security: [{ RealmrootOAuth: [] }],
+  summary: 'Show an x402 payment',
+  description:
+    'Returns the current state of a payment created by the authenticated Agent without exposing signatures, authorization payloads, or controller data.',
+  request: {
+    params: paymentParamsSchema,
+  },
+  responses: {
+    200: {
+      description: 'Current payment state.',
+      content: json(agentPaymentSchema),
+    },
+    ...badRequestResponse,
+    ...authenticationResponses,
+    ...notFoundResponse,
     ...internalErrorResponse,
   },
 })

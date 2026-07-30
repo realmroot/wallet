@@ -30,6 +30,10 @@ export const agentOperations = {
     operationId: 'createPaymentAuthorization',
     scope: agentScopes.x402Pay.value,
   },
+  getPayment: {
+    operationId: 'getPayment',
+    scope: agentScopes.x402Pay.value,
+  },
   confirmPaymentSettlement: {
     operationId: 'confirmPaymentSettlement',
     scope: agentScopes.x402Pay.value,
