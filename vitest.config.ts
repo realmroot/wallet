@@ -23,6 +23,30 @@ export default defineConfig({
           OIDC_JWKS: oidcJwks,
           TEST_MIGRATIONS: await readD1Migrations(path.join(import.meta.dirname, 'migrations')),
         },
+        outboundService: async (request) => {
+          const url = new URL(request.url)
+          if (url.origin !== 'https://fa.test') {
+            return new Response('Unexpected outbound request.', { status: 502 })
+          }
+          if (url.pathname === '/api/auth/.well-known/openid-configuration') {
+            return Response.json({
+              token_endpoint: 'https://fa.test/api/auth/oauth2/token',
+              revocation_endpoint: 'https://fa.test/api/auth/oauth2/revoke',
+            })
+          }
+          if (url.pathname === '/api/auth/oauth2/token' && request.method === 'POST') {
+            return Response.json({
+              access_token: 'access-token',
+              refresh_token: 'refresh-token',
+              id_token: 'id-token',
+              expires_in: 3600,
+            })
+          }
+          if (url.pathname === '/api/auth/oauth2/revoke' && request.method === 'POST') {
+            return new Response(null, { status: 200 })
+          }
+          return new Response('Unexpected OIDC request.', { status: 502 })
+        },
       },
     })),
   ],

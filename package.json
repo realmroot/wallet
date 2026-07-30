@@ -36,6 +36,7 @@
     "@x402/hono": "2.20.0",
     "hono": "4.12.32",
     "jose": "6.2.4",
+    "lucide-react": "^1.27.0",
     "oauth4webapi": "3.8.6",
     "react": "19.2.5",
     "react-dom": "19.2.5",

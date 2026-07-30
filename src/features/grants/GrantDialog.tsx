@@ -4,6 +4,7 @@ import { PolicyFields, policyFormSchema, toPolicyInput, type PolicyFormValues } 
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as Dialog from '@radix-ui/react-dialog'
 import { useForm } from 'react-hook-form'
+import { X } from 'lucide-react'
 
 export function GrantDialog({
   grant,
@@ -35,6 +36,9 @@ export function GrantDialog({
       <Dialog.Portal>
         <Dialog.Overlay className="backdrop" />
         <Dialog.Content className="dialog">
+          <Dialog.Close className="dialog-close" aria-label="Close spending rules">
+            <X size={18} />
+          </Dialog.Close>
           <p className="eyebrow">Agent budget</p>
           <Dialog.Title>Edit spending rules</Dialog.Title>
           <Dialog.Description className="muted">
@@ -44,9 +48,9 @@ export function GrantDialog({
             <PolicyFields register={form.register} errors={form.formState.errors} />
             <div className="approval-actions">
               <Dialog.Close asChild>
-                <button className="ghost" type="button">Cancel</button>
+                <button className="secondary-button" type="button">Cancel</button>
               </Dialog.Close>
-              <button className="primary" disabled={busy || form.formState.isSubmitting} type="submit">
+              <button className="primary-button" disabled={busy || form.formState.isSubmitting} type="submit">
                 {busy || form.formState.isSubmitting ? 'Saving…' : 'Save rules'}
               </button>
             </div>

@@ -26,10 +26,10 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/config', (route) =>
     route.fulfill({
       json: {
-        appOrigin: 'http://localhost:5174',
+        appOrigin: 'http://localhost:6230',
         oidcIssuer: 'https://fa.test/api/auth',
         clientId: 'agent-wallet-web',
-        audience: 'http://localhost:5174/api',
+        audience: 'http://localhost:6230/api',
         agentIssuer: 'https://fa.test/api/auth',
         network: 'eip155:84532',
         cdpProjectId: null,
@@ -116,11 +116,10 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   })
 
   await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Wallet control plane' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   await expect(page.getByText('12.5 USDC')).toBeVisible()
   await expect(page.getByText('0.01 ETH')).toBeVisible()
   await expect(page.getByText('Local Codex')).toBeVisible()
-  await expect(page.getByText('Grant Updated')).toBeVisible()
   await expect(page.getByRole('link', { name: 'Receipt' })).toHaveAttribute(
     'href',
     `https://sepolia.basescan.org/tx/0x${'ab'.repeat(32)}`,
@@ -136,6 +135,14 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect.poll(() => grantAction).toBe('pause')
   await expect(page.getByText('Paused')).toBeVisible()
 
+  await page.getByRole('link', { name: 'Activity' }).click()
+  await expect(page).toHaveURL('/activity')
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
+  await expect(page.getByText('Grant Updated')).toBeVisible()
+
+  await page.getByRole('link', { name: 'Agents' }).click()
+  await expect(page).toHaveURL('/agents')
+  await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await page.getByRole('button', { name: 'Edit' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await page.getByLabel('Total USDC').fill('20')
@@ -144,6 +151,11 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect.poll(() => updatedGrant?.totalLimit).toBe('20000000')
   await expect.poll(() => updatedGrant?.allowedOrigins).toEqual(['https://merchant.test'])
   await expect(page.getByRole('dialog')).not.toBeVisible()
+
+  await page.getByRole('link', { name: 'Settings' }).click()
+  await expect(page).toHaveURL('/settings')
+  await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
+  await expect(page.getByText('OIDC subject')).toBeVisible()
 })
 
 test('validates and approves an Agent budget request', async ({ page }) => {
@@ -183,4 +195,39 @@ test('validates and approves an Agent budget request', async ({ page }) => {
   await expect.poll(() => decision?.decision).toBe('approve')
   await expect.poll(() => decision?.totalLimit).toBe('10000000')
   await expect(page.getByRole('heading', { name: 'The Agent can now use its budget.' })).toBeVisible()
+})
+
+test('completes the OIDC callback and renders the requested page', async ({ page }) => {
+  let tokenExchange: Record<string, unknown> | null = null
+  await page.route('**/api/oidc/token', async (route) => {
+    tokenExchange = await route.request().postDataJSON()
+    await route.fulfill({
+      json: {
+        access_token: 'callback-access-token',
+        refresh_token: 'callback-refresh-token',
+        id_token: 'callback-id-token',
+        expires_in: 3600,
+      },
+    })
+  })
+
+  await page.goto('/')
+  await page.evaluate(() => {
+    localStorage.clear()
+    sessionStorage.setItem('agent-wallet.state', 'callback-state')
+    sessionStorage.setItem('agent-wallet.verifier', 'v'.repeat(64))
+    sessionStorage.setItem('agent-wallet.return_to', '/activity')
+  })
+  await page.goto('/oidc/callback?code=authorization-code&state=callback-state')
+
+  await expect(page).toHaveURL('/activity')
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
+  await expect.poll(() => tokenExchange).toEqual({
+    grantType: 'authorization_code',
+    code: 'authorization-code',
+    codeVerifier: 'v'.repeat(64),
+  })
+  await expect
+    .poll(() => page.evaluate(() => localStorage.getItem('agent-wallet.access_token')))
+    .toBe('callback-access-token')
 })

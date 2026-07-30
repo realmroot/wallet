@@ -45,10 +45,53 @@ function createSigner(env: Env, input: WalletSignerInput): ClientEvmSigner {
       const result = await cdp.endUser.signEvmTypedData({
         userId: input.cdpUserId,
         address: input.address,
-        typedData,
+        typedData: withExplicitEip712Domain(typedData),
         idempotencyKey: input.idempotencyKey,
       })
       return result.signature as `0x${string}`
     },
+  }
+}
+
+interface Eip712Input {
+  domain?: {
+    name?: string
+    version?: string
+    chainId?: number | bigint
+    verifyingContract?: string
+    salt?: string
+  }
+  types: Record<string, unknown>
+  primaryType: string
+  message: Record<string, unknown>
+}
+
+export function withExplicitEip712Domain(typedData: Eip712Input) {
+  const domain = typedData.domain ?? {}
+  const { chainId, ...domainWithoutChainId } = domain
+  const fields = [
+    ['name', 'string'],
+    ['version', 'string'],
+    ['chainId', 'uint256'],
+    ['verifyingContract', 'address'],
+    ['salt', 'bytes32'],
+  ] as const
+  const eip712Domain =
+    typedData.types.EIP712Domain ??
+    fields
+      .filter(([name]) => domain[name] !== undefined)
+      .map(([name, type]) => ({ name, type }))
+
+  return {
+    domain: {
+      ...domainWithoutChainId,
+      ...(chainId === undefined ? {} : { chainId: Number(chainId) }),
+    },
+    types: {
+      ...typedData.types,
+      EIP712Domain: eip712Domain,
+    },
+    primaryType: typedData.primaryType,
+    message: typedData.message,
   }
 }

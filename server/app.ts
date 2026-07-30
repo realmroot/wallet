@@ -18,6 +18,13 @@ import {
 } from './cdp'
 import { ApiError, badRequest } from './errors'
 import {
+  exchangeOidcToken,
+  oidcRevokeInput,
+  oidcTokenInput,
+  requireWalletOrigin,
+  revokeOidcToken,
+} from './oidc'
+import {
   actOnWallet,
   actOnGrant,
   completePayment,
@@ -90,7 +97,7 @@ export function createApp() {
         'Link',
         `<${c.env.APP_ORIGIN}/openapi.json>; rel="service-desc"; type="application/openapi+json"`,
       )
-      return c.json(agentApi.getOpenAPI31Document(agentApiDocument(c.env.APP_ORIGIN)))
+      return c.json(agentApiOpenApi(agentApi, c.env.APP_ORIGIN, c.env.OIDC_ISSUER))
     })
     .route('/api', createApi(agentApi))
     .onError(handleError)
@@ -150,6 +157,27 @@ export function createHumanApi() {
         },
         200,
       ),
+    )
+    .post(
+      '/oidc/token',
+      zValidator('json', oidcTokenInput, (result) => {
+        if (!result.success) invalidRequest()
+      }),
+      async (c) => {
+        requireWalletOrigin(c.req.raw, c.env.APP_ORIGIN)
+        return c.json(await exchangeOidcToken(c.env, c.req.valid('json')), 200)
+      },
+    )
+    .post(
+      '/oidc/revoke',
+      zValidator('json', oidcRevokeInput, (result) => {
+        if (!result.success) invalidRequest()
+      }),
+      async (c) => {
+        requireWalletOrigin(c.req.raw, c.env.APP_ORIGIN)
+        await revokeOidcToken(c.env, c.req.valid('json').token)
+        return c.body(null, 204)
+      },
     )
     .get('/overview', async (c) => {
       const principal = await authenticateHuman(c.req.raw, c.env, 'wallet:read')
@@ -372,6 +400,20 @@ function createAgentApi() {
     description:
       'A FlareAuth target access token bound to the public key in the per-request DPoP proof.',
   })
+  api.openAPIRegistry.registerComponent('securitySchemes', 'ScopeCatalog', {
+    type: 'oauth2',
+    flows: {
+      authorizationCode: {
+        authorizationUrl: 'https://realmroot.invalid/api/auth/oauth2/authorize',
+        tokenUrl: 'https://realmroot.invalid/api/auth/oauth2/token',
+        scopes: {
+          'wallet:x402:pay': 'Create x402 payments within a controller-approved Agent budget.',
+        },
+      },
+    },
+    description:
+      'OAuth scope catalog used by FlareAuth authorization discovery. Runtime requests use the DPoP security scheme.',
+  })
 
   const routes = api
     .openapi(createBudgetRequestRoute, async (c) => {
@@ -484,10 +526,12 @@ function createAgentApi() {
       )
     })
 
-  return routes
-    .doc31('/', (c) => agentApiDocument(c.env.APP_ORIGIN))
-    .doc31('/openapi.json', (c) => agentApiDocument(c.env.APP_ORIGIN))
-    .onError(handleError)
+  routes.get('/', (c) => c.json(agentApiOpenApi(api, c.env.APP_ORIGIN, c.env.OIDC_ISSUER)))
+  routes.get('/openapi.json', (c) =>
+    c.json(agentApiOpenApi(api, c.env.APP_ORIGIN, c.env.OIDC_ISSUER)),
+  )
+  routes.onError(handleError)
+  return api
 }
 
 function agentApiDocument(origin: string) {
@@ -535,6 +579,28 @@ function agentApiDocument(origin: string) {
       },
     },
   }
+}
+
+function agentApiOpenApi(
+  api: Pick<OpenAPIHono<AppEnv>, 'getOpenAPI31Document'>,
+  origin: string,
+  oidcIssuer: string,
+) {
+  const document = api.getOpenAPI31Document(agentApiDocument(origin))
+  const scheme = document.components?.securitySchemes?.ScopeCatalog
+  if (scheme && 'flows' in scheme && scheme.flows?.authorizationCode) {
+    scheme.flows.authorizationCode.authorizationUrl = `${oidcIssuer}/oauth2/authorize`
+    scheme.flows.authorizationCode.tokenUrl = `${oidcIssuer}/oauth2/token`
+  }
+  for (const path of Object.values(document.paths ?? {})) {
+    for (const method of ['get', 'post', 'put', 'patch', 'delete'] as const) {
+      const operation = path?.[method]
+      if (operation?.security?.some((requirement) => 'DPoP' in requirement)) {
+        operation.security = [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }]
+      }
+    }
+  }
+  return document
 }
 
 function openApiRouter() {

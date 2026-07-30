@@ -4,8 +4,6 @@ export type { PublicConfig } from './api-client'
 
 interface OidcMetadata {
   authorization_endpoint: string
-  token_endpoint: string
-  revocation_endpoint?: string
 }
 
 interface TokenResponse {
@@ -73,18 +71,12 @@ async function exchangeAuthorizationCode(config: PublicConfig) {
   const verifier = sessionStorage.getItem(`${prefix}verifier`)
   if (!code || !state || state !== expectedState || !verifier) throw new Error('OIDC callback is invalid.')
 
-  const metadata = await discovery(config.oidcIssuer)
-  const response = await fetch(metadata.token_endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: config.clientId,
-      redirect_uri: `${config.appOrigin}/oidc/callback`,
+  const response = await walletApi.oidc.token.$post({
+    json: {
+      grantType: 'authorization_code',
       code,
-      code_verifier: verifier,
-      resource: config.audience,
-    }),
+      codeVerifier: verifier,
+    },
   })
   if (!response.ok) throw new Error('OIDC token exchange failed.')
   storeTokens((await response.json()) as TokenResponse)
@@ -96,19 +88,14 @@ async function exchangeAuthorizationCode(config: PublicConfig) {
   return returnTo
 }
 
-export async function refreshAccessToken(config: PublicConfig) {
+export async function refreshAccessToken(_config: PublicConfig) {
   const refreshToken = localStorage.getItem(`${prefix}refresh_token`)
   if (!refreshToken) throw new Error('OIDC login expired.')
-  const metadata = await discovery(config.oidcIssuer)
-  const response = await fetch(metadata.token_endpoint, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      client_id: config.clientId,
-      refresh_token: refreshToken,
-      resource: config.audience,
-    }),
+  const response = await walletApi.oidc.token.$post({
+    json: {
+      grantType: 'refresh_token',
+      refreshToken,
+    },
   })
   if (!response.ok) {
     clearTokens()
@@ -117,23 +104,12 @@ export async function refreshAccessToken(config: PublicConfig) {
   storeTokens((await response.json()) as TokenResponse)
 }
 
-export async function logout(config: PublicConfig) {
+export async function logout(_config: PublicConfig) {
   try {
     const refreshToken = localStorage.getItem(`${prefix}refresh_token`)
     if (refreshToken) {
-      const metadata = await discovery(config.oidcIssuer)
-      if (metadata.revocation_endpoint) {
-        const response = await fetch(metadata.revocation_endpoint, {
-          method: 'POST',
-          headers: { 'content-type': 'application/x-www-form-urlencoded' },
-          body: new URLSearchParams({
-            token: refreshToken,
-            token_type_hint: 'refresh_token',
-            client_id: config.clientId,
-          }),
-        })
-        if (!response.ok) throw new Error('OIDC token revocation failed.')
-      }
+      const response = await walletApi.oidc.revoke.$post({ json: { token: refreshToken } })
+      if (!response.ok) throw new Error('OIDC token revocation failed.')
     }
   } finally {
     clearTokens()

@@ -28,14 +28,14 @@ pnpm db:migrate
 pnpm dev
 ```
 
-The default app URL is `http://localhost:5174`.
+The default app URL is `http://localhost:6230`.
 
 Configure the OIDC provider with:
 
 - a public SPA client using Authorization Code, Refresh Token, and PKCE;
-- redirect URI `http://localhost:5174/oidc/callback`;
-- CORS origin `http://localhost:5174`;
-- an API resource with audience `http://localhost:5174/api`;
+- redirect URI `http://localhost:6230/oidc/callback`;
+- CORS origin `http://localhost:6230`;
+- an API resource with audience `http://localhost:6230/api`;
 - human scopes `wallet:read` and `wallet:manage`;
 - Agent scope `wallet:x402:pay`.
 

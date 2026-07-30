@@ -2,6 +2,7 @@ import { env, SELF } from 'cloudflare:test'
 import { cleanupExpiredReservations } from '../server/repository'
 import { hasMatchingDeveloperJwtIdentity } from '../server/cdp'
 import { hasMatchingUsdcTransfer } from '../server/settlement'
+import { withExplicitEip712Domain } from '../server/signer'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
 import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
@@ -54,6 +55,35 @@ beforeAll(async () => {
 })
 
 describe('Agent Wallet', () => {
+  it('adds the explicit EIP-712 domain type required by CDP delegated signing', () => {
+    const typedData = withExplicitEip712Domain({
+      domain: {
+        name: 'USD Coin',
+        version: '2',
+        chainId: 84532,
+        verifyingContract: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+      },
+      types: {
+        TransferWithAuthorization: [
+          { name: 'from', type: 'address' },
+          { name: 'to', type: 'address' },
+        ],
+      },
+      primaryType: 'TransferWithAuthorization',
+      message: {
+        from: walletAddress,
+        to: '0x0000000000000000000000000000000000000001',
+      },
+    })
+
+    expect(typedData.types.EIP712Domain).toEqual([
+      { name: 'name', type: 'string' },
+      { name: 'version', type: 'string' },
+      { name: 'chainId', type: 'uint256' },
+      { name: 'verifyingContract', type: 'address' },
+    ])
+  })
+
   it('binds CDP users to the current OIDC subject', () => {
     const methods = [
       { type: 'jwt', sub: ownerSubject },
@@ -99,7 +129,22 @@ describe('Agent Wallet', () => {
       servers: [{ url: 'https://wallet.test/api' }],
       components: {
         securitySchemes: {
-          DPoP: { type: 'http', scheme: 'DPoP' },
+          DPoP: {
+            type: 'http',
+            scheme: 'DPoP',
+          },
+          ScopeCatalog: {
+            type: 'oauth2',
+            flows: {
+              authorizationCode: {
+                authorizationUrl: 'https://fa.test/api/auth/oauth2/authorize',
+                tokenUrl: 'https://fa.test/api/auth/oauth2/token',
+                scopes: {
+                  'wallet:x402:pay': expect.any(String),
+                },
+              },
+            },
+          },
         },
       },
       'x-cli-config': {
@@ -115,7 +160,10 @@ describe('Agent Wallet', () => {
       },
       paths: {
         '/x402/payments': {
-          post: { operationId: 'createX402Payment' },
+          post: {
+            operationId: 'createX402Payment',
+            security: [{ DPoP: [] }, { ScopeCatalog: ['wallet:x402:pay'] }],
+          },
         },
       },
     })
@@ -187,6 +235,52 @@ describe('Agent Wallet', () => {
     })
     expect(oversized.status).toBe(413)
     expect(await oversized.json()).toMatchObject({ error: 'payload_too_large' })
+  })
+
+  it('exchanges and revokes browser OIDC tokens through the same-origin Wallet API', async () => {
+    const exchange = await SELF.fetch('https://wallet.test/api/oidc/token', {
+      method: 'POST',
+      headers: {
+        origin: 'https://wallet.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        grantType: 'authorization_code',
+        code: 'authorization-code',
+        codeVerifier: 'v'.repeat(64),
+      }),
+    })
+    expect(exchange.status, await exchange.clone().text()).toBe(200)
+    expect(await exchange.json()).toEqual({
+      access_token: 'access-token',
+      refresh_token: 'refresh-token',
+      id_token: 'id-token',
+      expires_in: 3600,
+    })
+
+    const revoke = await SELF.fetch('https://wallet.test/api/oidc/revoke', {
+      method: 'POST',
+      headers: {
+        origin: 'https://wallet.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ token: 'refresh-token' }),
+    })
+    expect(revoke.status).toBe(204)
+
+    const crossOrigin = await SELF.fetch('https://wallet.test/api/oidc/token', {
+      method: 'POST',
+      headers: {
+        origin: 'https://attacker.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        grantType: 'authorization_code',
+        code: 'authorization-code',
+        codeVerifier: 'v'.repeat(64),
+      }),
+    })
+    expect(crossOrigin.status).toBe(403)
   })
 
   it('provisions a wallet and approves a budget requested by the payment operation', async () => {

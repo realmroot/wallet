@@ -5,7 +5,7 @@ export default defineConfig({
   fullyParallel: true,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
-    baseURL: 'http://localhost:5174',
+    baseURL: 'http://localhost:6230',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -17,7 +17,7 @@ export default defineConfig({
   ],
   webServer: {
     command: 'pnpm dev',
-    url: 'http://localhost:5174/healthz',
+    url: 'http://localhost:6230/healthz',
     reuseExistingServer: true,
     timeout: 120_000,
   },

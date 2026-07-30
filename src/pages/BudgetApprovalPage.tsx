@@ -10,6 +10,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { useForm } from 'react-hook-form'
 import { Link, useLocation } from 'wouter'
+import { Bot, Check, CircleDollarSign, ShieldCheck, WalletCards, X } from 'lucide-react'
 
 export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
   const [pathname] = useLocation()
@@ -45,12 +46,15 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
   }
   if (result) {
     return (
-      <main className="center">
-        <div className="approval-card">
+      <main className="center approval-result">
+        <div className="result-card">
+          <span className={`result-icon${result === 'denied' ? ' denied' : ''}`}>
+            {result === 'approved' ? <Check size={28} /> : <X size={28} />}
+          </span>
           <p className="eyebrow">Request {result}</p>
           <h2>{result === 'approved' ? 'The Agent can now use its budget.' : 'No budget was granted.'}</h2>
           <p className="muted">You can close this page and return to the Agent.</p>
-          <Link className="primary button-link" to="/">Open wallet</Link>
+          <Link className="primary-button button-link" to="/">Open wallet</Link>
         </div>
       </main>
     )
@@ -109,30 +113,58 @@ function ApprovalForm({
   })
 
   return (
-    <main className="center approval-shell">
-      <form className="approval-card" onSubmit={form.handleSubmit(onApprove)}>
-        <p className="eyebrow">Agent budget request</p>
-        <h2>Allow this Agent to spend?</h2>
-        <div className="identity-card">
-          <span>Agent identity</span>
-          <code>{agentSubject}</code>
-        </div>
-        <PolicyFields
-          register={form.register}
-          errors={form.formState.errors}
-          minimumAmount="0.001"
-          requireExpiration
-        />
-        {error ? <p className="error" role="alert">{error}</p> : null}
-        <div className="approval-actions">
-          <button className="ghost" disabled={busy} type="button" onClick={() => void onDeny()}>
-            Deny
-          </button>
-          <button className="primary" disabled={busy || form.formState.isSubmitting} type="submit">
-            {busy || form.formState.isSubmitting ? 'Authorizing…' : 'Authorize budget'}
-          </button>
-        </div>
-      </form>
+    <main className="approval-page">
+      <header className="approval-header">
+        <a className="wordmark" href="/" aria-label="Agent Wallet home">
+          <span className="brand-symbol"><WalletCards size={18} /></span>
+          <span>Agent Wallet</span>
+        </a>
+        <span className="secure-label"><ShieldCheck size={15} /> Secure authorization</span>
+      </header>
+      <div className="approval-layout">
+        <section className="approval-context">
+          <p className="eyebrow">Agent budget request</p>
+          <h1>Set the boundary.<br />The Agent stays inside it.</h1>
+          <p>
+            This Agent is asking for permission to make x402 payments. Review its identity and define exactly
+            how much it can spend.
+          </p>
+          <div className="identity-card">
+            <span className="agent-avatar"><Bot size={20} /></span>
+            <div>
+              <span>Verified Agent identity</span>
+              <code>{agentSubject}</code>
+            </div>
+            <ShieldCheck size={18} />
+          </div>
+          <div className="approval-promise">
+            <CircleDollarSign size={18} />
+            <p><strong>No funds move now.</strong> You are creating a revocable payment policy.</p>
+          </div>
+        </section>
+        <form className="approval-card" onSubmit={form.handleSubmit(onApprove)}>
+          <div className="form-heading">
+            <p className="eyebrow">Spending policy</p>
+            <h2>Allow this Agent to spend?</h2>
+            <p>All limits are denominated in USDC.</p>
+          </div>
+          <PolicyFields
+            register={form.register}
+            errors={form.formState.errors}
+            minimumAmount="0.001"
+            requireExpiration
+          />
+          {error ? <p className="error" role="alert">{error}</p> : null}
+          <div className="approval-actions">
+            <button className="secondary-button" disabled={busy} type="button" onClick={() => void onDeny()}>
+              Deny request
+            </button>
+            <button className="primary-button" disabled={busy || form.formState.isSubmitting} type="submit">
+              {busy || form.formState.isSubmitting ? 'Authorizing…' : 'Authorize budget'}
+            </button>
+          </div>
+        </form>
+      </div>
     </main>
   )
 }
