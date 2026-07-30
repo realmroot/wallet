@@ -1,5 +1,10 @@
 import { createServer } from 'node:http'
 import { getDefaultAsset } from '@x402/evm'
+import {
+  decodePaymentSignatureHeader,
+  encodePaymentRequiredHeader,
+  encodePaymentResponseHeader,
+} from '@x402/core/http'
 import { verifyTypedData } from 'viem'
 
 const port = Number(process.env.PORT ?? 8788)
@@ -18,16 +23,22 @@ const server = createServer(async (request, response) => {
   const required = paymentRequired(resourceUrl)
   const encodedPayment = request.headers['payment-signature']
   if (!encodedPayment) {
-    response.setHeader('payment-required', encodeHeader(required))
+    response.setHeader('payment-required', encodePaymentRequiredHeader(required))
     return json(response, 402, required)
   }
 
   try {
-    const payment = JSON.parse(Buffer.from(encodedPayment, 'base64url').toString('utf8'))
+    const payment = decodePaymentSignatureHeader(encodedPayment)
     await verifyPayment(payment, required)
     response.setHeader(
       'payment-response',
-      encodeHeader({ success: true, network, transaction: 'local-signature-only' }),
+      encodePaymentResponseHeader({
+        success: true,
+        network,
+        payer: payment.payload.authorization.from,
+        amount,
+        transaction: `0x${'ab'.repeat(32)}`,
+      }),
     )
     return json(response, 200, {
       paid: true,
@@ -35,6 +46,7 @@ const server = createServer(async (request, response) => {
       settlement: 'This demo verifies the signature but does not broadcast a transaction.',
     })
   } catch (error) {
+    response.setHeader('payment-required', encodePaymentRequiredHeader(required))
     return json(response, 402, {
       error: 'invalid_payment',
       message: error instanceof Error ? error.message : String(error),
@@ -111,10 +123,6 @@ async function verifyPayment(payment, required) {
     signature: payment.payload.signature,
   })
   if (!valid) throw new Error('EIP-712 payment signature is invalid.')
-}
-
-function encodeHeader(value) {
-  return Buffer.from(JSON.stringify(value)).toString('base64url')
 }
 
 function json(response, status, value) {

@@ -4,6 +4,8 @@ import {
   createBudgetRequestSchema,
   paymentRequiredSchema,
   paymentResultSchema,
+  settlementResponseSchema,
+  settlementResultSchema,
 } from '../shared/contracts'
 import { createRoute, z } from '@hono/zod-openapi'
 
@@ -32,6 +34,10 @@ const errorResponses = {
     description: 'The request conflicts with current state.',
     content: json(apiErrorSchema),
   },
+  502: {
+    description: 'An upstream wallet or network service failed.',
+    content: json(apiErrorSchema),
+  },
   500: {
     description: 'The request failed.',
     content: json(apiErrorSchema),
@@ -44,11 +50,19 @@ const idParamsSchema = z.object({
   }),
 })
 
+const idempotencyHeadersSchema = z.object({
+  'idempotency-key': z.string().trim().min(8).max(200).openapi({
+    param: { name: 'idempotency-key', in: 'header' },
+    example: 'business-request-019fab92',
+  }),
+})
+
 export const createBudgetRequestRoute = createRoute({
   method: 'post',
   path: '/agent/budget-requests',
   operationId: 'createBudgetRequest',
   tags: ['Agent'],
+  security: [{ DPoP: [] }],
   summary: 'Request a spending budget for the current Agent',
   request: {
     body: {
@@ -69,11 +83,37 @@ export const createBudgetRequestRoute = createRoute({
   },
 })
 
+export const reportSettlementRoute = createRoute({
+  method: 'post',
+  path: '/x402/payments/{id}/settlement',
+  operationId: 'reportX402Settlement',
+  tags: ['Agent'],
+  security: [{ DPoP: [] }],
+  summary: 'Record and verify the merchant x402 settlement response',
+  description:
+    'After retrying the business request, decode its PAYMENT-RESPONSE header with the x402 standard Base64 HTTP decoder and submit the resulting SettleResponse here. Successful responses are verified against the Base Sepolia transaction before the payment is marked settled.',
+  request: {
+    params: idParamsSchema,
+    body: {
+      required: true,
+      content: json(settlementResponseSchema),
+    },
+  },
+  responses: {
+    200: {
+      description: 'The settlement result was recorded.',
+      content: json(settlementResultSchema),
+    },
+    ...errorResponses,
+  },
+})
+
 export const getBudgetRequestRoute = createRoute({
   method: 'get',
   path: '/agent/budget-requests/{id}',
   operationId: 'getBudgetRequest',
   tags: ['Agent'],
+  security: [{ DPoP: [] }],
   summary: 'Read an Agent budget approval request',
   description:
     'Poll at the returned interval until status is approved, denied, or expired. Retry createX402Payment only after approval.',
@@ -94,10 +134,12 @@ export const createX402PaymentRoute = createRoute({
   path: '/x402/payments',
   operationId: 'createX402Payment',
   tags: ['Agent'],
+  security: [{ DPoP: [] }],
   summary: 'Create an x402 payment for a PaymentRequired response',
   description:
-    'Pass the unmodified x402 PaymentRequired object returned by a business API. On 200, encode paymentPayload as base64url JSON in PAYMENT-SIGNATURE and retry the original business request. On 202, open approvalUrl for the controller, poll getBudgetRequest using id, and retry this operation after approval.',
+    'Pass the unmodified x402 PaymentRequired object returned by a business API. On 200, encode paymentPayload with the x402 standard Base64 HTTP encoder in PAYMENT-SIGNATURE and retry the original business request. On 202, open approvalUrl for the controller, poll getBudgetRequest using id, and retry this operation after approval.',
   request: {
+    headers: idempotencyHeadersSchema,
     body: {
       required: true,
       content: json(paymentRequiredSchema),

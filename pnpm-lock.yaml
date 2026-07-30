@@ -4,16 +4,24 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  axios: 1.18.0
+  uuid: 11.1.1
+  ws: 8.21.0
+
 importers:
 
   .:
     dependencies:
+      '@coinbase/cdp-core':
+        specifier: 0.0.120
+        version: 0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)
       '@coinbase/cdp-hooks':
-        specifier: 0.0.119
-        version: 0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5)
+        specifier: 0.0.120
+        version: 0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5)
       '@coinbase/cdp-react':
-        specifier: 0.0.119
-        version: 0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(@coinbase/cdp-hooks@0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+        specifier: 0.0.120
+        version: 0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(@coinbase/cdp-hooks@0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@coinbase/cdp-sdk':
         specifier: 1.54.0
         version: 1.54.0(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
@@ -59,13 +67,13 @@ importers:
     devDependencies:
       '@cloudflare/vite-plugin':
         specifier: 1.48.0
-        version: 1.48.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0))(wrangler@4.115.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+        version: 1.48.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0))(wrangler@4.115.0(@cloudflare/workers-types@5.20260730.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       '@cloudflare/vitest-pool-workers':
         specifier: 0.19.0
-        version: 0.19.0(@cloudflare/workers-types@5.20260722.1)(@vitest/runner@4.1.2)(@vitest/snapshot@4.1.2)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@4.1.2(@types/node@26.1.2)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0)))
+        version: 0.19.0(@cloudflare/workers-types@5.20260730.1)(@vitest/runner@4.1.2)(@vitest/snapshot@4.1.2)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@4.1.2(@types/node@26.1.2)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0)))
       '@cloudflare/workers-types':
-        specifier: 5.20260722.1
-        version: 5.20260722.1
+        specifier: 5.20260730.1
+        version: 5.20260730.1
       '@playwright/test':
         specifier: 1.59.1
         version: 1.59.1
@@ -89,7 +97,7 @@ importers:
         version: 4.1.2(@types/node@26.1.2)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0))
       wrangler:
         specifier: 4.115.0
-        version: 4.115.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+        version: 4.115.0(@cloudflare/workers-types@5.20260730.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
 packages:
 
@@ -162,14 +170,14 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@cloudflare/workers-types@5.20260722.1':
-    resolution: {integrity: sha512-8+kivCgFGzwrAfNOWgSpzy/VDvmT/i5KWBgQhnygv3d1kajNn6mCYTbLKpouG0aY8mXjhv+IQm1a8r2K/H4pqQ==}
+  '@cloudflare/workers-types@5.20260730.1':
+    resolution: {integrity: sha512-3e1cBXcPTwXBk2ur0CfxZKQKL6X7vUZlOn1R7VYU0zZVJcSKFcq1AoOZM+ps0LuL0uTAxdcLg+qwXrBXVu+UuQ==}
 
-  '@coinbase/cdp-api-client@0.0.119':
-    resolution: {integrity: sha512-3hjRo/LhWaqCpLmvHENx1L05459fcSLwEnOFTgB1bxLjxLAV9YMCp8/UUU1AOtcePV5g0kzi3iAQGqd6/CTHEw==}
+  '@coinbase/cdp-api-client@0.0.120':
+    resolution: {integrity: sha512-mqekx95DIliqyHK6TnwKZxw3LUkSBLE7dSGbQ0KrSMcojKpFUxeGB/JrWjoIFfy3E6RYxhbGkxhnUJpTujPNRw==}
 
-  '@coinbase/cdp-core@0.0.119':
-    resolution: {integrity: sha512-1klXQZx1UmhPnjZKMxnRVKdNpGiv6Na+l1AyYeWYcH+QJMXEidY09wOfaDkWURw8iJ12El1GlpDsjyUM9W0h4A==}
+  '@coinbase/cdp-core@0.0.120':
+    resolution: {integrity: sha512-3QQ8hSzvjlNk2PQD0W/pRkBTWFCgWE22g+FhmL7A46YRYd4iOvDcEFvwT8kGb/qK+iUOXXIKf5LkCB3CSwPnSQ==}
     peerDependencies:
       '@react-native-async-storage/async-storage': ^2.0.0
       expo-secure-store: ^15.0.0
@@ -185,18 +193,18 @@ packages:
       x402-fetch:
         optional: true
 
-  '@coinbase/cdp-hooks@0.0.119':
-    resolution: {integrity: sha512-zuqpIejrOJRa7SFjA8LCxoPrBqPqy6tvukLi3YbfkxglfjfI9fBnixO2K51LGx2EyH/MhMlO1ipG5qZ3AA7ubQ==}
+  '@coinbase/cdp-hooks@0.0.120':
+    resolution: {integrity: sha512-sexSlybYnry4q47Y+6nKF8i03wApO3IzeemSgFj1FFyqyxKah1uhi4wWk1FM2TSlXaCbWEb0BoYVbxKo27ip3w==}
     peerDependencies:
-      '@coinbase/cdp-core': ^0.0.119
+      '@coinbase/cdp-core': ^0.0.120
       react: '>=18.2.0'
 
-  '@coinbase/cdp-react@0.0.119':
-    resolution: {integrity: sha512-uT0VG2zHz8U6u9Ix9w57fAXo2wp4bTCJ41v7boQtlkWZ5Rh0WJ9gd7u34B0jz7JlLLV6efn/RS8ztgDDUgB41Q==}
+  '@coinbase/cdp-react@0.0.120':
+    resolution: {integrity: sha512-QmKFNDnwp3ZCdEFrvcdz5wXlHLEECHcIkY0FJIjMTTqtCOSc7Xwv49GYCzXbg2B+OUWR2EF/B6gUkor3I7NY9w==}
     peerDependencies:
       '@base-org/account': ^2.5.6
-      '@coinbase/cdp-core': ^0.0.119
-      '@coinbase/cdp-hooks': ^0.0.119
+      '@coinbase/cdp-core': ^0.0.120
+      '@coinbase/cdp-hooks': ^0.0.120
       react: '>=18.2.0'
     peerDependenciesMeta:
       '@base-org/account':
@@ -1665,13 +1673,10 @@ packages:
   axios-retry@4.5.0:
     resolution: {integrity: sha512-aR99oXhpEDGo0UuAlYcn2iGRds30k366Zfa05XWScR9QaQD4JYiP3/1Qt1u7YlefUOK+cn0CcwoL1oefavQUlQ==}
     peerDependencies:
-      axios: 0.x || 1.x
+      axios: 1.18.0
 
-  axios@1.16.0:
-    resolution: {integrity: sha512-6hp5CwvTPlN2A31g5dxnwAX0orzM7pmCRDLnZSX772mv8WDqICwFjowHuPs04Mc8deIld1+ejhtaMn5vp6b+1w==}
-
-  axios@1.18.1:
-    resolution: {integrity: sha512-3nTvFlvpn9Zu/RkHUqtc7/+al4UpRW5az71ap5zccp6e8RAYEzhMTecX8Dz1wWDYrPpUoB1HAQEGEAEvUr7S9g==}
+  axios@1.18.0:
+    resolution: {integrity: sha512-E32NzpYKp++W7XRe52rHiXV2ehxmh3wbdgO7MHeFM+vqxLBYHzt0ElkiImtOBxtOmyp0yoC8C6uESVV84Y2/hw==}
 
   base-x@3.0.11:
     resolution: {integrity: sha512-xz7wQ8xDhdyP7tQxwdteLYeFfS68tSMNCZ/Y37WJ4bhGfKPpqEIlmIyueQHqOyoPhE6xNUqjzRr8ra0eF9VRvA==}
@@ -1967,12 +1972,12 @@ packages:
   isomorphic-ws@4.0.1:
     resolution: {integrity: sha512-BhBvN2MBpWTaSHdWRb/bwdZJ1WaehQ2L1KngkCkfLUGF0mAWAT1sQUQacEmQ0jXkFw/czDXPNQSL5u2/Krsz1w==}
     peerDependencies:
-      ws: '*'
+      ws: 8.21.0
 
   isows@1.0.7:
     resolution: {integrity: sha512-I1fSfDCZL5P0v33sVqeTDSpcstAg/N+wF5HS033mogOVIp4B+oHC7oOCsA3axAbBSGTJ8QubbNmnIRN/h8U7hg==}
     peerDependencies:
-      ws: '*'
+      ws: 8.21.0
 
   jayson@4.3.0:
     resolution: {integrity: sha512-AauzHcUcqs8OBnCHOkJY280VaTiCm57AbuO7lqzcw7JapGj50BisE3xhksye4zlTSR1+1tAz67wLTl8tEH1obQ==}
@@ -2385,13 +2390,8 @@ packages:
     resolution: {integrity: sha512-q3l3P9UtEEiAHcsgsqTgf9PPjctrDWoIXW3NpOHFdRDbLvu4DLIcxHangJ4RLrWkBcKjmcs/6NkerI8T/rE4LA==}
     engines: {node: '>=6.14.2'}
 
-  uuid@14.0.1:
-    resolution: {integrity: sha512-6ZxzVpzDXDa3bJWaHilVayA+BH/1zmxCJoVgvmqJnid/gPoKHxUrS/aC/T6LGQtNHT+XHG9fXPJB4d+IrU30Ew==}
-    hasBin: true
-
-  uuid@8.3.2:
-    resolution: {integrity: sha512-+NYs2QeMWy+GWFOEm9xnn6HCDp0l7QBD7ml8zLUmJ+93Q5NF0NocErnwkTkXVFNiX3/fpC6afS8Dhb/gz7R7eg==}
-    deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
+  uuid@11.1.1:
+    resolution: {integrity: sha512-vIYxrBCC/N/K+Js3qSN88go7kIfNPssr/hHCesKCQNAjmgvYS2oqr69kIufEG+O4+PfezOH4EbIeHCfFov8ZgQ==}
     hasBin: true
 
   viem@2.48.11:
@@ -2513,44 +2513,8 @@ packages:
     resolution: {integrity: sha512-r6lPcBGxZXlIcymEu7InxDMhdW0KDxpLgoFLcguasxCaJ/SOIZwINatK9KY/tf+ZrlywOKU0UDj3ATXUBfxJXA==}
     engines: {node: '>=8'}
 
-  ws@7.5.13:
-    resolution: {integrity: sha512-rsKI6xDBFVf4r/x8XyChGK04QR/XHroxs/jUcoWvtEZM8TPU/X/uIY9B1CsSzYws9ZJb/6bbBu7dPhFW00CAoA==}
-    engines: {node: '>=8.3.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: ^5.0.2
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
-  ws@8.18.3:
-    resolution: {integrity: sha512-PEIGCY5tSlUt50cqyMXfCzX+oOPqN0vuGqWzbcJ2xvnkzkq46oOpz7dQaTDBdfICb4N14+GARUDw2XV2N4tvzg==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
   ws@8.21.0:
     resolution: {integrity: sha512-Vsp28b7DRcimFQvrqu2Wek3z1iYxDCWqHYB8Qsnk/S4RfaCQzPGPyBNuVjJV3cd6UiKtUtp6sNM77gWvzcCH+g==}
-    engines: {node: '>=10.0.0'}
-    peerDependencies:
-      bufferutil: ^4.0.1
-      utf-8-validate: '>=5.0.2'
-    peerDependenciesMeta:
-      bufferutil:
-        optional: true
-      utf-8-validate:
-        optional: true
-
-  ws@8.21.1:
-    resolution: {integrity: sha512-+0NTnW77fFN/DjQi6k/Sq/Yvk4Sgajw7urW8V+asjXnRgDs9gyGkdb7EzgfhA4goXsRIZKE28fzIXBHEzhuiWw==}
     engines: {node: '>=10.0.0'}
     peerDependencies:
       bufferutil: ^4.0.1
@@ -2626,20 +2590,20 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260722.1
 
-  '@cloudflare/vite-plugin@1.48.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0))(wrangler@4.115.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6))':
+  '@cloudflare/vite-plugin@1.48.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0))(wrangler@4.115.0(@cloudflare/workers-types@5.20260730.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6))':
     dependencies:
       '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260722.1)
       miniflare: 4.20260722.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       unenv: 2.0.0-rc.24
       vite: 8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0)
       workerd: 1.20260722.1
-      wrangler: 4.115.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      wrangler: 4.115.0(@cloudflare/workers-types@5.20260730.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
 
-  '@cloudflare/vitest-pool-workers@0.19.0(@cloudflare/workers-types@5.20260722.1)(@vitest/runner@4.1.2)(@vitest/snapshot@4.1.2)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@4.1.2(@types/node@26.1.2)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0)))':
+  '@cloudflare/vitest-pool-workers@0.19.0(@cloudflare/workers-types@5.20260730.1)(@vitest/runner@4.1.2)(@vitest/snapshot@4.1.2)(bufferutil@4.1.0)(utf-8-validate@6.0.6)(vitest@4.1.2(@types/node@26.1.2)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0)))':
     dependencies:
       '@vitest/runner': 4.1.2
       '@vitest/snapshot': 4.1.2
@@ -2647,7 +2611,7 @@ snapshots:
       esbuild: 0.28.1
       miniflare: 4.20260722.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       vitest: 4.1.2(@types/node@26.1.2)(vite@8.0.11(@types/node@26.1.2)(esbuild@0.28.1)(yaml@2.9.0))
-      wrangler: 4.115.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      wrangler: 4.115.0(@cloudflare/workers-types@5.20260730.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6)
       zod: 3.25.76
     transitivePeerDependencies:
       - '@cloudflare/workers-types'
@@ -2669,18 +2633,18 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20260722.1':
     optional: true
 
-  '@cloudflare/workers-types@5.20260722.1': {}
+  '@cloudflare/workers-types@5.20260730.1': {}
 
-  '@coinbase/cdp-api-client@0.0.119':
+  '@coinbase/cdp-api-client@0.0.120':
     dependencies:
-      axios: 1.18.1
+      axios: 1.18.0
     transitivePeerDependencies:
       - debug
       - supports-color
 
-  '@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)':
+  '@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)':
     dependencies:
-      '@coinbase/cdp-api-client': 0.0.119
+      '@coinbase/cdp-api-client': 0.0.120
       '@solana/kit': 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       '@solana/web3.js': 1.98.4(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       bs58: 6.0.0
@@ -2702,15 +2666,15 @@ snapshots:
       - utf-8-validate
       - zod
 
-  '@coinbase/cdp-hooks@0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5)':
+  '@coinbase/cdp-hooks@0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5)':
     dependencies:
-      '@coinbase/cdp-core': 0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)
+      '@coinbase/cdp-core': 0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)
       react: 19.2.5
 
-  '@coinbase/cdp-react@0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(@coinbase/cdp-hooks@0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
+  '@coinbase/cdp-react@0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(@coinbase/cdp-hooks@0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)':
     dependencies:
-      '@coinbase/cdp-core': 0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)
-      '@coinbase/cdp-hooks': 0.0.119(@coinbase/cdp-core@0.0.119(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5)
+      '@coinbase/cdp-core': 0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3)
+      '@coinbase/cdp-hooks': 0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5)
       '@internationalized/number': 3.6.4
       '@radix-ui/react-dialog': 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@radix-ui/react-form': 0.1.16(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
@@ -2733,8 +2697,8 @@ snapshots:
       '@solana-program/token': 0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))
       '@solana/kit': 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       abitype: 1.0.6(typescript@6.0.3)(zod@3.25.76)
-      axios: 1.16.0
-      axios-retry: 4.5.0(axios@1.16.0)
+      axios: 1.18.0
+      axios-retry: 4.5.0(axios@1.18.0)
       bs58: 6.0.0
       jose: 6.2.4
       md5: 2.3.0
@@ -2749,6 +2713,7 @@ snapshots:
       - bufferutil
       - debug
       - fastestsmallesttextencoderdecoder
+      - supports-color
       - typescript
       - utf-8-validate
 
@@ -3717,7 +3682,7 @@ snapshots:
       '@solana/functional': 5.5.1(typescript@6.0.3)
       '@solana/rpc-subscriptions-spec': 5.5.1(typescript@6.0.3)
       '@solana/subscribable': 5.5.1(typescript@6.0.3)
-      ws: 8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     optionalDependencies:
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -4104,20 +4069,12 @@ snapshots:
 
   asynckit@0.4.0: {}
 
-  axios-retry@4.5.0(axios@1.16.0):
+  axios-retry@4.5.0(axios@1.18.0):
     dependencies:
-      axios: 1.16.0
+      axios: 1.18.0
       is-retry-allowed: 2.2.0
 
-  axios@1.16.0:
-    dependencies:
-      follow-redirects: 1.16.0
-      form-data: 4.0.6
-      proxy-from-env: 2.1.0
-    transitivePeerDependencies:
-      - debug
-
-  axios@1.18.1:
+  axios@1.18.0:
     dependencies:
       follow-redirects: 1.16.0
       form-data: 4.0.6
@@ -4390,13 +4347,13 @@ snapshots:
 
   is-retry-allowed@2.2.0: {}
 
-  isomorphic-ws@4.0.1(ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
+  isomorphic-ws@4.0.1(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
     dependencies:
-      ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
-  isows@1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
+  isows@1.0.7(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)):
     dependencies:
-      ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
 
   jayson@4.3.0(bufferutil@4.1.0)(utf-8-validate@6.0.6):
     dependencies:
@@ -4407,11 +4364,11 @@ snapshots:
       delay: 5.0.0
       es6-promisify: 5.0.0
       eyes: 0.1.8
-      isomorphic-ws: 4.0.1(ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      isomorphic-ws: 4.0.1(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       json-stringify-safe: 5.0.1
       stream-json: 1.9.1
-      uuid: 8.3.2
-      ws: 7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      uuid: 11.1.1
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     transitivePeerDependencies:
       - bufferutil
       - utf-8-validate
@@ -4687,8 +4644,8 @@ snapshots:
       '@types/ws': 8.18.1
       buffer: 6.0.3
       eventemitter3: 5.0.4
-      uuid: 14.0.1
-      ws: 8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      uuid: 11.1.1
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     optionalDependencies:
       bufferutil: 4.1.0
       utf-8-validate: 6.0.6
@@ -4814,9 +4771,7 @@ snapshots:
       node-gyp-build: 4.8.4
     optional: true
 
-  uuid@14.0.1: {}
-
-  uuid@8.3.2: {}
+  uuid@11.1.1: {}
 
   viem@2.48.11(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)(zod@3.25.76):
     dependencies:
@@ -4825,9 +4780,9 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@6.0.3)(zod@3.25.76)
-      isows: 1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      isows: 1.0.7(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       ox: 0.14.20(typescript@6.0.3)(zod@3.25.76)
-      ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     optionalDependencies:
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -4842,9 +4797,9 @@ snapshots:
       '@scure/bip32': 1.7.0
       '@scure/bip39': 1.6.0
       abitype: 1.2.3(typescript@6.0.3)(zod@4.4.3)
-      isows: 1.0.7(ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6))
+      isows: 1.0.7(ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6))
       ox: 0.14.20(typescript@6.0.3)(zod@4.4.3)
-      ws: 8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6)
+      ws: 8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6)
     optionalDependencies:
       typescript: 6.0.3
     transitivePeerDependencies:
@@ -4914,7 +4869,7 @@ snapshots:
       '@cloudflare/workerd-linux-arm64': 1.20260722.1
       '@cloudflare/workerd-windows-64': 1.20260722.1
 
-  wrangler@4.115.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6):
+  wrangler@4.115.0(@cloudflare/workers-types@5.20260730.1)(bufferutil@4.1.0)(utf-8-validate@6.0.6):
     dependencies:
       '@cloudflare/kv-asset-handler': 0.5.0
       '@cloudflare/unenv-preset': 2.16.1(unenv@2.0.0-rc.24)(workerd@1.20260722.1)
@@ -4925,7 +4880,7 @@ snapshots:
       unenv: 2.0.0-rc.24
       workerd: 1.20260722.1
     optionalDependencies:
-      '@cloudflare/workers-types': 5.20260722.1
+      '@cloudflare/workers-types': 5.20260730.1
       fsevents: 2.3.3
     transitivePeerDependencies:
       - bufferutil
@@ -4937,22 +4892,7 @@ snapshots:
       string-width: 4.2.3
       strip-ansi: 6.0.1
 
-  ws@7.5.13(bufferutil@4.1.0)(utf-8-validate@6.0.6):
-    optionalDependencies:
-      bufferutil: 4.1.0
-      utf-8-validate: 6.0.6
-
-  ws@8.18.3(bufferutil@4.1.0)(utf-8-validate@6.0.6):
-    optionalDependencies:
-      bufferutil: 4.1.0
-      utf-8-validate: 6.0.6
-
   ws@8.21.0(bufferutil@4.1.0)(utf-8-validate@6.0.6):
-    optionalDependencies:
-      bufferutil: 4.1.0
-      utf-8-validate: 6.0.6
-
-  ws@8.21.1(bufferutil@4.1.0)(utf-8-validate@6.0.6):
     optionalDependencies:
       bufferutil: 4.1.0
       utf-8-validate: 6.0.6

@@ -1,6 +1,10 @@
-import { SELF } from 'cloudflare:test'
+import { env, SELF } from 'cloudflare:test'
+import { cleanupExpiredReservations } from '../server/repository'
+import { hasMatchingDeveloperJwtIdentity } from '../server/cdp'
+import { hasMatchingUsdcTransfer } from '../server/settlement'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
+import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
 import { privateKeyToAccount } from 'viem/accounts'
 import { beforeAll, describe, expect, it } from 'vitest'
 
@@ -50,10 +54,75 @@ beforeAll(async () => {
 })
 
 describe('Agent Wallet', () => {
+  it('binds CDP users to the current OIDC subject', () => {
+    const methods = [
+      { type: 'jwt', sub: ownerSubject },
+      { type: 'email', sub: 'not-used' },
+    ]
+    expect(hasMatchingDeveloperJwtIdentity(methods, ownerSubject)).toBe(true)
+    expect(hasMatchingDeveloperJwtIdentity(methods, 'attacker')).toBe(false)
+  })
+
+  it('matches the exact USDC settlement transfer', () => {
+    const payTo = '0x0000000000000000000000000000000000000001'
+    const asset = getDefaultAsset('eip155:84532').address
+    const log = {
+      address: asset,
+      topics: encodeEventTopics({
+        abi: erc20Abi,
+        eventName: 'Transfer',
+        args: { from: walletAddress, to: payTo },
+      }),
+      data: encodeAbiParameters([{ type: 'uint256' }], [25_000n]),
+    }
+    const payment = {
+      asset,
+      amount: '25000',
+      pay_to: payTo,
+      wallet_address: walletAddress,
+    }
+    expect(hasMatchingUsdcTransfer([log], payment)).toBe(true)
+    expect(hasMatchingUsdcTransfer([log], { ...payment, amount: '25001' })).toBe(false)
+  })
+
+  it('reports deployment readiness', async () => {
+    const response = await SELF.fetch('https://wallet.test/readyz')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ status: 'ready' })
+  })
+
   it('publishes a Restish-discoverable x402 payer contract', async () => {
+    const discovery = await SELF.fetch('https://wallet.test/openapi.json')
+    expect(discovery.status).toBe(200)
+    expect(discovery.headers.get('link')).toContain('rel="service-desc"')
+    expect(await discovery.json()).toMatchObject({
+      servers: [{ url: 'https://wallet.test/api' }],
+      components: {
+        securitySchemes: {
+          DPoP: { type: 'http', scheme: 'DPoP' },
+        },
+      },
+      'x-cli-config': {
+        profiles: {
+          default: {
+            credentials: {
+              DPoP: {
+                params: { provider: 'realmroot-target' },
+              },
+            },
+          },
+        },
+      },
+      paths: {
+        '/x402/payments': {
+          post: { operationId: 'createX402Payment' },
+        },
+      },
+    })
+
     const root = await SELF.fetch('https://wallet.test/api')
     expect(root.status).toBe(200)
-    expect(root.headers.get('link')).toContain('rel="service-desc"')
+    expect(root.headers.get('link')).toContain('https://wallet.test/openapi.json')
     expect(root.headers.get('x-request-id')).toBeTruthy()
     expect(await root.json()).toMatchObject({
       openapi: '3.1.0',
@@ -85,6 +154,7 @@ describe('Agent Wallet', () => {
       '/agent/budget-requests',
       '/agent/budget-requests/{id}',
       '/x402/payments',
+      '/x402/payments/{id}/settlement',
     ])
 
     expect((await SELF.fetch('https://wallet.test/api/user-openapi.json')).status).toBe(404)
@@ -134,7 +204,6 @@ describe('Agent Wallet', () => {
       body: JSON.stringify({
         cdpUserId: 'cdp-user-1',
         address: walletAddress,
-        delegationExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
       }),
     })
     expect(provision.status).toBe(204)
@@ -196,9 +265,246 @@ describe('Agent Wallet', () => {
     const agentToken = await createAgentToken()
     const requirement = paymentRequired('25000')
 
+    const idempotencyKey = crypto.randomUUID()
+    const first = await pay(agentToken, requirement, idempotencyKey)
+    expect(first.status).toBe(200)
+    const replay = await pay(agentToken, requirement, idempotencyKey)
+    expect(replay.status).toBe(200)
+    expect(await replay.json()).toMatchObject({ replayed: true })
     expect((await pay(agentToken, requirement)).status).toBe(200)
-    expect((await pay(agentToken, requirement)).status).toBe(409)
+    expect((await pay(agentToken, paymentRequired('26000'), idempotencyKey)).status).toBe(409)
     expect((await pay(agentToken, paymentRequired('100001'))).status).toBe(403)
+  })
+
+  it('records a verified x402 settlement response', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const payment = await (
+      await pay(agentToken, paymentRequired('25000'))
+    ).json<{ paymentId: string }>()
+    const transaction = `0x${'ab'.repeat(32)}`
+    const url = `${walletUrl}/${payment.paymentId}/settlement`
+    const response = await SELF.fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, url, 'POST'),
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        success: true,
+        payer: walletAddress,
+        transaction,
+        network: 'eip155:84532',
+        amount: '25000',
+      }),
+    })
+
+    expect(response.status, await response.clone().text()).toBe(200)
+    expect(await response.json()).toEqual({
+      paymentId: payment.paymentId,
+      status: 'settled',
+      transactionHash: transaction,
+    })
+    const state = await (
+      await SELF.fetch('https://wallet.test/api/overview', {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json<{
+      payments: Array<{ status: string; transactionHash: string }>
+      auditEvents: Array<{ action: string }>
+    }>()
+    expect(state.payments[0]).toMatchObject({ status: 'settled', transactionHash: transaction })
+    expect(state.auditEvents).toContainEqual(expect.objectContaining({ action: 'payment.settled' }))
+  })
+
+  it('enforces the USDC asset allowlist and atomic concurrent limits', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const unsupported = paymentRequired('25000')
+    unsupported.accepts[0]!.asset = '0x0000000000000000000000000000000000000002'
+    expect((await pay(agentToken, unsupported)).status).toBe(400)
+
+    const attempts = await Promise.all(
+      Array.from({ length: 3 }, () => pay(agentToken, paymentRequired('100000'))),
+    )
+    expect(attempts.filter((response) => response.status === 200)).toHaveLength(2)
+    expect(attempts.filter((response) => response.status === 403)).toHaveLength(1)
+  })
+
+  it('lets the controller update, pause, resume, and revoke an Agent grant', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const state = await (
+      await SELF.fetch('https://wallet.test/api/overview', {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json<{ grants: Array<{ id: string }> }>()
+    const grantId = state.grants[0]!.id
+    const grantUrl = `https://wallet.test/api/grants/${grantId}`
+    const actionUrl = `${grantUrl}/actions`
+
+    const update = await SELF.fetch(grantUrl, {
+      method: 'PUT',
+      headers: jsonHeaders(`Bearer ${token}`),
+      body: JSON.stringify({
+        name: 'Production Codex',
+        totalLimit: '2000000',
+        perTransactionLimit: '50000',
+        periodKind: 'daily',
+        periodLimit: '500000',
+        expiresAt: null,
+      }),
+    })
+    expect(update.status).toBe(204)
+
+    const pause = await SELF.fetch(actionUrl, {
+      method: 'POST',
+      headers: jsonHeaders(`Bearer ${token}`),
+      body: JSON.stringify({ action: 'pause' }),
+    })
+    expect(pause.status).toBe(204)
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(403)
+
+    const resume = await SELF.fetch(actionUrl, {
+      method: 'POST',
+      headers: jsonHeaders(`Bearer ${token}`),
+      body: JSON.stringify({ action: 'resume' }),
+    })
+    expect(resume.status).toBe(204)
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(200)
+
+    const revoke = await SELF.fetch(grantUrl, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(revoke.status).toBe(204)
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(202)
+  })
+
+  it('enforces Wallet emergency pause and grant merchant restrictions', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const overview = await (
+      await SELF.fetch('https://wallet.test/api/overview', {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json<{ grants: Array<{ id: string }> }>()
+    const grantId = overview.grants[0]!.id
+    const walletActionsUrl = 'https://wallet.test/api/wallet/actions'
+
+    const pause = await SELF.fetch(walletActionsUrl, {
+      method: 'POST',
+      headers: jsonHeaders(`Bearer ${token}`),
+      body: JSON.stringify({ action: 'pause' }),
+    })
+    expect(pause.status).toBe(204)
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(403)
+
+    const resume = await SELF.fetch(walletActionsUrl, {
+      method: 'POST',
+      headers: jsonHeaders(`Bearer ${token}`),
+      body: JSON.stringify({ action: 'resume' }),
+    })
+    expect(resume.status).toBe(204)
+
+    const restricted = await SELF.fetch(`https://wallet.test/api/grants/${grantId}`, {
+      method: 'PUT',
+      headers: jsonHeaders(`Bearer ${token}`),
+      body: JSON.stringify({
+        name: 'Restricted Codex',
+        totalLimit: '1000000',
+        perTransactionLimit: '100000',
+        periodKind: 'daily',
+        periodLimit: '250000',
+        allowedOrigins: ['https://allowed.test'],
+        allowedRecipients: ['0x0000000000000000000000000000000000000001'],
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      }),
+    })
+    expect(restricted.status, await restricted.clone().text()).toBe(204)
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(403)
+
+    const allowed = paymentRequired('25000')
+    allowed.resource.url = 'https://allowed.test/weather'
+    expect((await pay(agentToken, allowed)).status).toBe(200)
+
+    const state = await (
+      await SELF.fetch('https://wallet.test/api/overview', {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json<{
+      user: { pausedAt: string | null }
+      grants: Array<{ allowedOrigins: string[]; allowedRecipients: string[]; expiresAt: string | null }>
+      auditEvents: Array<{ action: string }>
+    }>()
+    expect(state.user.pausedAt).toBeNull()
+    expect(state.grants[0]).toMatchObject({
+      allowedOrigins: ['https://allowed.test'],
+      allowedRecipients: ['0x0000000000000000000000000000000000000001'],
+    })
+    expect(state.grants[0]?.expiresAt).toBeTruthy()
+    expect(state.auditEvents).toContainEqual(expect.objectContaining({ action: 'wallet.paused' }))
+    expect(state.auditEvents).toContainEqual(expect.objectContaining({ action: 'wallet.resumed' }))
+  })
+
+  it('releases abandoned signing reservations during scheduled cleanup', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const row = await env.DB.prepare(
+      `SELECT g.id AS grant_id, g.user_id
+       FROM agent_grant g
+       JOIN wallet_user u ON u.id = g.user_id
+       WHERE u.subject = ?`,
+    )
+      .bind(ownerSubject)
+      .first<{ grant_id: string; user_id: string }>()
+    expect(row).toBeTruthy()
+    const paymentId = crypto.randomUUID()
+    const now = new Date().toISOString()
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE agent_grant SET spent_total = '25000', period_spent = '25000' WHERE id = ?",
+      ).bind(row!.grant_id),
+      env.DB.prepare(
+        `INSERT INTO payment (
+           id, user_id, grant_id, idempotency_key, requirement_hash, network,
+           asset, amount, pay_to, resource, status, reservation_expires_at,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, 'eip155:84532', ?, '25000', ?, ?, 'reserved', ?, ?, ?)`,
+      ).bind(
+        paymentId,
+        row!.user_id,
+        row!.grant_id,
+        crypto.randomUUID(),
+        crypto.randomUUID(),
+        getDefaultAsset('eip155:84532').address,
+        '0x0000000000000000000000000000000000000001',
+        'https://merchant.test/stale',
+        new Date(Date.now() - 60_000).toISOString(),
+        now,
+        now,
+      ),
+    ])
+
+    expect(await cleanupExpiredReservations(env.DB)).toBe(1)
+    expect(
+      await env.DB.prepare('SELECT spent_total, period_spent FROM agent_grant WHERE id = ?')
+        .bind(row!.grant_id)
+        .first(),
+    ).toMatchObject({ spent_total: '0', period_spent: '0' })
+    expect(
+      await env.DB.prepare('SELECT status FROM payment WHERE id = ?').bind(paymentId).first(),
+    ).toMatchObject({ status: 'failed' })
+    expect(
+      await env.DB.prepare('SELECT action FROM audit_event WHERE target_id = ?')
+        .bind(paymentId)
+        .first(),
+    ).toMatchObject({ action: 'payment.reservation_expired' })
   })
 
   it('rejects a replayed DPoP proof', async () => {
@@ -212,6 +518,7 @@ describe('Agent Wallet', () => {
         headers: {
           authorization: `DPoP ${agentToken}`,
           dpop: proof,
+          'idempotency-key': crypto.randomUUID(),
           'content-type': 'application/json',
         },
         body: JSON.stringify(paymentRequired('25000')),
@@ -307,12 +614,17 @@ async function dpopProof(accessToken: string, url = walletUrl, method = 'POST') 
     .sign(dpopPrivateKey)
 }
 
-async function pay(agentToken: string, requirement: ReturnType<typeof paymentRequired>) {
+async function pay(
+  agentToken: string,
+  requirement: ReturnType<typeof paymentRequired>,
+  idempotencyKey = crypto.randomUUID(),
+) {
   return SELF.fetch(walletUrl, {
     method: 'POST',
     headers: {
       authorization: `DPoP ${agentToken}`,
       dpop: await dpopProof(agentToken, walletUrl, 'POST'),
+      'idempotency-key': idempotencyKey,
       'content-type': 'application/json',
     },
     body: JSON.stringify(requirement),
@@ -326,7 +638,6 @@ async function provisionAndGrant(token: string) {
     body: JSON.stringify({
       cdpUserId: 'cdp-user-1',
       address: walletAddress,
-      delegationExpiresAt: new Date(Date.now() + 3_600_000).toISOString(),
     }),
   })
   expect(provision.status, await provision.clone().text()).toBe(204)

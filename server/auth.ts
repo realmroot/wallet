@@ -71,7 +71,7 @@ export async function authenticateAgent(request: Request, env: Env): Promise<Age
   const { payload, protectedHeader } = await jwtVerify(rawToken, jwks, {
     issuer: env.OIDC_ISSUER,
     audience: env.OIDC_AUDIENCE,
-    algorithms: ['RS256'],
+    algorithms: ['EdDSA', 'ES256', 'RS256'],
   }).catch(() => {
     throw agentUnauthorized('Agent access token is invalid.')
   })
@@ -183,9 +183,12 @@ async function verifyDpopProof(
     throw dpopUnauthorized('DPoP proof signature is invalid.')
   })
   const now = Math.floor(Date.now() / 1000)
+  const proofTarget = new URL(request.url)
+  proofTarget.search = ''
+  proofTarget.hash = ''
   if (
     payload.htm !== request.method ||
-    payload.htu !== request.url ||
+    payload.htu !== proofTarget.href ||
     typeof payload.iat !== 'number' ||
     Math.abs(now - payload.iat) > 60 ||
     typeof payload.jti !== 'string'
@@ -199,7 +202,7 @@ async function verifyDpopProof(
   await db.prepare('DELETE FROM dpop_replay WHERE expires_at <= ?').bind(new Date().toISOString()).run()
   const inserted = await db
     .prepare('INSERT OR IGNORE INTO dpop_replay (issuer, jti, expires_at) VALUES (?, ?, ?)')
-    .bind(issuer, payload.jti, expiresAt)
+    .bind(`${issuer}#${keyThumbprint}`, payload.jti, expiresAt)
     .run()
   if (inserted.meta.changes !== 1) throw dpopUnauthorized('DPoP proof was already used.')
 }

@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { cloudflareTest, readD1Migrations } from '@cloudflare/vitest-pool-workers'
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 
 const mockSignerPrivateKey =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
@@ -27,6 +27,7 @@ export default defineConfig({
     })),
   ],
   test: {
+    exclude: [...configDefaults.exclude, 'tests/browser/**'],
     setupFiles: ['./tests/apply-migrations.ts'],
   },
 })

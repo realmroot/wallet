@@ -118,22 +118,26 @@ export async function refreshAccessToken(config: PublicConfig) {
 }
 
 export async function logout(config: PublicConfig) {
-  const refreshToken = localStorage.getItem(`${prefix}refresh_token`)
-  if (refreshToken) {
-    const metadata = await discovery(config.oidcIssuer)
-    if (metadata.revocation_endpoint) {
-      await fetch(metadata.revocation_endpoint, {
-        method: 'POST',
-        headers: { 'content-type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({
-          token: refreshToken,
-          token_type_hint: 'refresh_token',
-          client_id: config.clientId,
-        }),
-      })
+  try {
+    const refreshToken = localStorage.getItem(`${prefix}refresh_token`)
+    if (refreshToken) {
+      const metadata = await discovery(config.oidcIssuer)
+      if (metadata.revocation_endpoint) {
+        const response = await fetch(metadata.revocation_endpoint, {
+          method: 'POST',
+          headers: { 'content-type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({
+            token: refreshToken,
+            token_type_hint: 'refresh_token',
+            client_id: config.clientId,
+          }),
+        })
+        if (!response.ok) throw new Error('OIDC token revocation failed.')
+      }
     }
+  } finally {
+    clearTokens()
   }
-  clearTokens()
 }
 
 function storeTokens(tokens: TokenResponse) {

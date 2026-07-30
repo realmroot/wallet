@@ -1,4 +1,12 @@
-import type { BudgetDecisionInput, BudgetRequestDetail, WalletOverview } from '../shared/contracts'
+import type {
+  BudgetDecisionInput,
+  BudgetRequestDetail,
+  FaucetRequest,
+  GrantActionInput,
+  UpdateGrantInput,
+  WalletActionInput,
+  WalletOverview,
+} from '../shared/contracts'
 import { accessToken, refreshAccessToken } from './auth'
 import { type PublicConfig, walletApi } from './api-client'
 import type { InferRequestType } from 'hono/client'
@@ -16,6 +24,23 @@ export async function getOverview(config: PublicConfig): Promise<WalletOverview>
 
 export async function updateWallet(config: PublicConfig, input: UpdateWalletInput): Promise<void> {
   await empty(await authenticated(config, (headers) => walletApi.wallet.$put({ json: input }, { headers })))
+}
+
+export async function actOnWallet(
+  config: PublicConfig,
+  input: WalletActionInput,
+): Promise<void> {
+  await empty(
+    await authenticated(config, (headers) =>
+      walletApi.wallet.actions.$post({ json: input }, { headers }),
+    ),
+  )
+}
+
+export async function requestFaucet(config: PublicConfig, input: FaucetRequest) {
+  return json<{ transactionHash: string }>(
+    await authenticated(config, (headers) => walletApi.wallet.faucet.$post({ json: input }, { headers })),
+  )
 }
 
 export async function inspectBudgetRequest(
@@ -49,6 +74,30 @@ export async function revokeGrant(config: PublicConfig, id: string): Promise<voi
   await empty(
     await authenticated(config, (headers) =>
       walletApi.grants[':id'].$delete({ param: { id } }, { headers }),
+    ),
+  )
+}
+
+export async function updateGrant(
+  config: PublicConfig,
+  id: string,
+  input: UpdateGrantInput,
+): Promise<void> {
+  await empty(
+    await authenticated(config, (headers) =>
+      walletApi.grants[':id'].$put({ param: { id }, json: input }, { headers }),
+    ),
+  )
+}
+
+export async function actOnGrant(
+  config: PublicConfig,
+  id: string,
+  input: GrantActionInput,
+): Promise<void> {
+  await empty(
+    await authenticated(config, (headers) =>
+      walletApi.grants[':id'].actions.$post({ param: { id }, json: input }, { headers }),
     ),
   )
 }

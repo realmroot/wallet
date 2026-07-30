@@ -17,3 +17,4 @@ export const forbidden = (message: string) => new ApiError(403, 'forbidden', mes
 export const badRequest = (message: string) => new ApiError(400, 'bad_request', message)
 export const conflict = (message: string) => new ApiError(409, 'conflict', message)
 export const notFound = (message: string) => new ApiError(404, 'not_found', message)
+export const upstreamError = (message: string) => new ApiError(502, 'upstream_error', message)

@@ -25,9 +25,11 @@ export function CdpProvider({ config, children }: { config: PublicConfig; childr
 export function ProvisionWallet({
   config,
   onComplete,
+  renewal = false,
 }: {
   config: PublicConfig
   onComplete: () => Promise<void>
+  renewal?: boolean
 }) {
   if (!config.cdpProjectId) {
     return (
@@ -36,15 +38,17 @@ export function ProvisionWallet({
       </div>
     )
   }
-  return <CdpProvisioning config={config} onComplete={onComplete} />
+  return <CdpProvisioning config={config} onComplete={onComplete} renewal={renewal} />
 }
 
 function CdpProvisioning({
   config,
   onComplete,
+  renewal,
 }: {
   config: PublicConfig
   onComplete: () => Promise<void>
+  renewal: boolean
 }) {
   const { authenticateWithJWT } = useAuthenticateWithJWT()
   const { createDelegation } = useCreateDelegation()
@@ -65,7 +69,6 @@ function CdpProvisioning({
       await updateWallet(config, {
         cdpUserId: authenticated.userId,
         address,
-        delegationExpiresAt: expiresAt,
       })
       await onComplete()
     } catch (cause) {
@@ -77,9 +80,13 @@ function CdpProvisioning({
 
   return (
     <div className="empty-state">
-      <p>Provision a CDP EVM wallet and grant this Wallet service a 30-day signing delegation.</p>
+      <p>
+        {renewal
+          ? 'Renew this Wallet service’s delegated signing permission for another 30 days.'
+          : 'Provision a CDP EVM wallet and grant this Wallet service a 30-day signing delegation.'}
+      </p>
       <button className="primary" disabled={busy} onClick={provision}>
-        {busy ? 'Provisioning…' : 'Create wallet'}
+        {busy ? 'Working…' : renewal ? 'Renew delegation' : 'Create wallet'}
       </button>
       {error ? <p className="error">{error}</p> : null}
     </div>

@@ -1,5 +1,5 @@
 import type { PaymentRequired } from '../shared/contracts'
-import { CdpClient } from '@coinbase/cdp-sdk'
+import { createCdpClient } from './cdp'
 import { x402Client } from '@x402/core/client'
 import type { ClientEvmSigner } from '@x402/evm'
 import { registerExactEvmScheme } from '@x402/evm/exact/client'
@@ -41,11 +41,7 @@ function createSigner(env: Env, input: WalletSignerInput): ClientEvmSigner {
   return {
     address: input.address,
     async signTypedData(typedData) {
-      const cdp = new CdpClient({
-        apiKeyId: env.CDP_API_KEY_ID,
-        apiKeySecret: env.CDP_API_KEY_SECRET,
-        walletSecret: env.CDP_WALLET_SECRET,
-      })
+      const cdp = createCdpClient(env)
       const result = await cdp.endUser.signEvmTypedData({
         userId: input.cdpUserId,
         address: input.address,

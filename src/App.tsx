@@ -1,13 +1,21 @@
-import type { BudgetRequestDetail, WalletOverview } from '../shared/contracts'
+import type { AgentGrant, BudgetRequestDetail, UpdateGrantInput, WalletOverview } from '../shared/contracts'
 import {
+  actOnWallet,
+  actOnGrant,
   decideBudgetRequest,
   getOverview,
   inspectBudgetRequest,
+  requestFaucet,
   revokeGrant,
+  updateGrant,
 } from './api'
 import { beginLogin, completeLogin, hasToken, loadConfig, logout, type PublicConfig } from './auth'
-import { CdpProvider, ProvisionWallet } from './cdp'
-import { useEffect, useState } from 'react'
+import { lazy, Suspense, useEffect, useState } from 'react'
+
+const CdpProvider = lazy(() => import('./cdp').then((module) => ({ default: module.CdpProvider })))
+const ProvisionWallet = lazy(() =>
+  import('./cdp').then((module) => ({ default: module.ProvisionWallet })),
+)
 
 export function App() {
   const [config, setConfig] = useState<PublicConfig | null>(null)
@@ -52,9 +60,24 @@ function LoginPage({ config, error }: { config: PublicConfig; error: string | nu
 function Dashboard({ config, initialError }: { config: PublicConfig; initialError: string | null }) {
   const [overview, setOverview] = useState<WalletOverview | null>(null)
   const [error, setError] = useState<string | null>(initialError)
+  const [editingGrant, setEditingGrant] = useState<AgentGrant | null>(null)
+  const [busyAction, setBusyAction] = useState<string | null>(null)
 
   async function reload() {
     setOverview(await getOverview(config))
+  }
+
+  async function runAction(key: string, action: () => Promise<void>) {
+    setBusyAction(key)
+    setError(null)
+    try {
+      await action()
+      await reload()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Wallet operation failed.')
+    } finally {
+      setBusyAction(null)
+    }
   }
 
   useEffect(() => {
@@ -62,8 +85,9 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
   }, [])
 
   return (
-    <CdpProvider config={config}>
-      <main className="shell">
+    <Suspense fallback={<main className="center">Loading wallet…</main>}>
+      <CdpProvider config={config}>
+        <main className="shell">
         <header>
           <div>
             <p className="eyebrow">Agent Wallet</p>
@@ -72,8 +96,11 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
           <button
             className="ghost"
             onClick={async () => {
-              await logout(config)
-              location.reload()
+              try {
+                await logout(config)
+              } finally {
+                location.reload()
+              }
             }}
           >
             Sign out
@@ -89,6 +116,23 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
               <div>
                 <p className="label">Base Sepolia wallet</p>
                 <strong>{overview.user.walletAddress ?? 'Not provisioned'}</strong>
+                {overview.user.walletAddress ? (
+                  <div className="inline-actions">
+                    <button
+                      className="text-button"
+                      onClick={() => navigator.clipboard.writeText(overview.user.walletAddress!)}
+                    >
+                      Copy address
+                    </button>
+                    <a
+                      href={`https://sepolia.basescan.org/address/${overview.user.walletAddress}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View on BaseScan
+                    </a>
+                  </div>
+                ) : null}
               </div>
               <div>
                 <p className="label">Signing delegation</p>
@@ -98,13 +142,74 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                     : 'Inactive'}
                 </strong>
               </div>
+              <div className="balance-list">
+                <p className="label">Balances</p>
+                {overview.runtime.balanceStatus === 'unavailable' ? (
+                  <strong>Temporarily unavailable</strong>
+                ) : overview.runtime.balances.length > 0 ? (
+                  overview.runtime.balances.map((balance) => (
+                    <strong key={balance.symbol}>{formatToken(balance.amount, balance.decimals)} {balance.symbol}</strong>
+                  ))
+                ) : (
+                  <strong>—</strong>
+                )}
+              </div>
+              {overview.runtime.faucetAvailable && overview.user.walletAddress ? (
+                <div className="faucet-actions">
+                  <p className="label">Testnet funds</p>
+                  <div className="inline-actions">
+                    {(['usdc', 'eth'] as const).map((token) => (
+                      <button
+                        className="ghost small"
+                        disabled={busyAction === `faucet-${token}`}
+                        key={token}
+                        onClick={() =>
+                          runAction(`faucet-${token}`, async () => {
+                            await requestFaucet(config, { token })
+                          })
+                        }
+                      >
+                        Get test {token.toUpperCase()}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              {overview.user.walletAddress ? (
+                <div className="wallet-actions">
+                  <p className="label">Emergency control</p>
+                  <button
+                    className={overview.user.pausedAt ? 'ghost small' : 'danger-link'}
+                    disabled={busyAction === 'wallet-state'}
+                    onClick={() =>
+                      runAction('wallet-state', () =>
+                        actOnWallet(config, { action: overview.user.pausedAt ? 'resume' : 'pause' }),
+                      )
+                    }
+                  >
+                    {overview.user.pausedAt ? 'Resume Agent payments' : 'Pause all Agent payments'}
+                  </button>
+                </div>
+              ) : null}
             </section>
+            {overview.user.pausedAt ? (
+              <div className="notice error">
+                Agent payments are paused for this Wallet. Existing on-chain authorizations may still settle.
+              </div>
+            ) : null}
 
             {!overview.user.walletAddress ? (
               config.cdpProjectId ? (
                 <ProvisionWallet config={config} onComplete={reload} />
               ) : (
                 <div className="notice">Configure a CDP project to provision the wallet from this browser.</div>
+              )
+            ) : null}
+            {overview.user.walletAddress && delegationNeedsRenewal(overview.user.delegationExpiresAt) ? (
+              config.cdpProjectId ? (
+                <ProvisionWallet config={config} onComplete={reload} renewal />
+              ) : (
+                <div className="notice error">Signing delegation expired or expires soon. Ask the operator to configure CDP renewal.</div>
               )
             ) : null}
 
@@ -123,8 +228,8 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                   <article className="grant-card" key={grant.id}>
                     <div className="row">
                       <strong>{grant.name}</strong>
-                      <span className={grant.revokedAt ? 'status revoked' : 'status'}>
-                        {grant.revokedAt ? 'Revoked' : 'Active'}
+                      <span className={grant.revokedAt ? 'status revoked' : grant.pausedAt ? 'status paused' : 'status'}>
+                        {grant.revokedAt ? 'Revoked' : grant.pausedAt ? 'Paused' : 'Active'}
                       </span>
                     </div>
                     <code>{grant.agentSubject}</code>
@@ -132,16 +237,40 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                       {formatUsdc(BigInt(grant.spentTotal))} <span>of {formatUsdc(BigInt(grant.totalLimit))}</span>
                     </p>
                     <p className="muted">Per payment {formatUsdc(BigInt(grant.perTransactionLimit))}</p>
+                    <p className="muted">
+                      {grant.allowedOrigins.length > 0
+                        ? `${grant.allowedOrigins.length} allowed merchant ${grant.allowedOrigins.length === 1 ? 'origin' : 'origins'}`
+                        : 'Any merchant origin'}
+                      {' · '}
+                      {grant.allowedRecipients.length > 0
+                        ? `${grant.allowedRecipients.length} allowed ${grant.allowedRecipients.length === 1 ? 'recipient' : 'recipients'}`
+                        : 'Any recipient'}
+                    </p>
+                    <p className="muted">
+                      {grant.expiresAt ? `Expires ${new Date(grant.expiresAt).toLocaleDateString()}` : 'No expiration'}
+                    </p>
                     {!grant.revokedAt ? (
-                      <button
-                        className="danger-link"
-                        onClick={async () => {
-                          await revokeGrant(config, grant.id)
-                          await reload()
-                        }}
-                      >
-                        Revoke
-                      </button>
+                      <div className="grant-actions">
+                        <button className="text-button" onClick={() => setEditingGrant(grant)}>Edit</button>
+                        <button
+                          className="text-button"
+                          disabled={busyAction === `grant-${grant.id}`}
+                          onClick={() =>
+                            runAction(`grant-${grant.id}`, () =>
+                              actOnGrant(config, grant.id, { action: grant.pausedAt ? 'resume' : 'pause' }),
+                            )
+                          }
+                        >
+                          {grant.pausedAt ? 'Resume' : 'Pause'}
+                        </button>
+                        <button
+                          className="danger-link"
+                          disabled={busyAction === `revoke-${grant.id}`}
+                          onClick={() => runAction(`revoke-${grant.id}`, () => revokeGrant(config, grant.id))}
+                        >
+                          Revoke
+                        </button>
+                      </div>
                     ) : null}
                   </article>
                 ))}
@@ -164,18 +293,167 @@ function Dashboard({ config, initialError }: { config: PublicConfig; initialErro
                     <div>
                       <strong>{new URL(payment.resource).hostname}</strong>
                       <p>{new Date(payment.createdAt).toLocaleString()}</p>
+                      {payment.error ? <p className="payment-error">{payment.error}</p> : null}
                     </div>
-                    <span>{payment.status}</span>
+                    <span title={payment.error ?? undefined}>{payment.status}</span>
                     <strong>{formatUsdc(BigInt(payment.amount))}</strong>
+                    {payment.transactionHash ? (
+                      <a
+                        className="tx-link"
+                        href={`https://sepolia.basescan.org/tx/${payment.transactionHash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Receipt
+                      </a>
+                    ) : null}
                   </div>
                 ))}
                 {overview.payments.length === 0 ? <div className="empty-state">No payments yet.</div> : null}
               </div>
             </section>
+
+            <section>
+              <div className="section-heading">
+                <div>
+                  <p className="eyebrow">Security history</p>
+                  <h2>Activity</h2>
+                </div>
+              </div>
+              <div className="table">
+                {overview.auditEvents.map((event) => (
+                  <div className="activity-row" key={event.id}>
+                    <div>
+                      <strong>{eventLabel(event.action)}</strong>
+                      <p>{new Date(event.createdAt).toLocaleString()}</p>
+                    </div>
+                    <code>{event.actorKind}</code>
+                    <span>{event.targetType}</span>
+                  </div>
+                ))}
+                {overview.auditEvents.length === 0 ? (
+                  <div className="empty-state">No account activity yet.</div>
+                ) : null}
+              </div>
+            </section>
           </>
         )}
-      </main>
-    </CdpProvider>
+        {editingGrant ? (
+          <GrantDialog
+            grant={editingGrant}
+            busy={busyAction === `edit-${editingGrant.id}`}
+            onClose={() => setEditingGrant(null)}
+            onSave={(input) =>
+              runAction(`edit-${editingGrant.id}`, async () => {
+                await updateGrant(config, editingGrant.id, input)
+                setEditingGrant(null)
+              })
+            }
+          />
+        ) : null}
+        </main>
+      </CdpProvider>
+    </Suspense>
+  )
+}
+
+function GrantDialog({
+  grant,
+  busy,
+  onClose,
+  onSave,
+}: {
+  grant: AgentGrant
+  busy: boolean
+  onClose: () => void
+  onSave: (input: UpdateGrantInput) => Promise<void>
+}) {
+  return (
+    <div className="backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+      <form
+        className="dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="grant-dialog-title"
+        onSubmit={async (event) => {
+          event.preventDefault()
+          const data = new FormData(event.currentTarget)
+          const periodKind = String(data.get('periodKind')) as UpdateGrantInput['periodKind']
+          await onSave({
+            name: String(data.get('name')),
+            totalLimit: toAtomic(String(data.get('totalLimit'))),
+            perTransactionLimit: toAtomic(String(data.get('perTransactionLimit'))),
+            periodKind,
+            periodLimit: periodKind === 'none' ? null : toAtomic(String(data.get('periodLimit'))),
+            allowedOrigins: parseOrigins(String(data.get('allowedOrigins'))),
+            allowedRecipients: parseRecipients(String(data.get('allowedRecipients'))),
+            expiresAt: toIsoDateTime(String(data.get('expiresAt'))),
+          })
+        }}
+      >
+        <p className="eyebrow">Agent budget</p>
+        <h2 id="grant-dialog-title">Edit spending rules</h2>
+        <label>
+          Name
+          <input name="name" required defaultValue={grant.name} />
+        </label>
+        <div className="field-grid">
+          <label>
+            Total USDC
+            <input name="totalLimit" type="number" min="0.000001" step="0.000001" required defaultValue={fromAtomic(grant.totalLimit)} />
+          </label>
+          <label>
+            Per payment
+            <input name="perTransactionLimit" type="number" min="0.000001" step="0.000001" required defaultValue={fromAtomic(grant.perTransactionLimit)} />
+          </label>
+        </div>
+        <label>
+          Allowed merchant origins
+          <textarea
+            name="allowedOrigins"
+            rows={3}
+            placeholder="https://api.example.com&#10;Leave empty to allow any merchant"
+            defaultValue={grant.allowedOrigins.join('\n')}
+          />
+        </label>
+        <label>
+          Allowed recipient addresses
+          <textarea
+            name="allowedRecipients"
+            rows={3}
+            placeholder="0x…&#10;Leave empty to allow any recipient"
+            defaultValue={grant.allowedRecipients.join('\n')}
+          />
+        </label>
+        <label>
+          Authorization expires
+          <input
+            name="expiresAt"
+            type="datetime-local"
+            min={toDateTimeLocal(new Date())}
+            defaultValue={grant.expiresAt ? toDateTimeLocal(new Date(grant.expiresAt)) : ''}
+          />
+        </label>
+        <div className="field-grid">
+          <label>
+            Reset period
+            <select name="periodKind" defaultValue={grant.periodKind}>
+              <option value="daily">Daily</option>
+              <option value="monthly">Monthly</option>
+              <option value="none">No periodic limit</option>
+            </select>
+          </label>
+          <label>
+            Period limit (USDC)
+            <input name="periodLimit" type="number" min="0.000001" step="0.000001" defaultValue={grant.periodLimit ? fromAtomic(grant.periodLimit) : '1'} />
+          </label>
+        </div>
+        <div className="approval-actions">
+          <button className="ghost" type="button" onClick={onClose}>Cancel</button>
+          <button className="primary" disabled={busy} type="submit">{busy ? 'Saving…' : 'Save rules'}</button>
+        </div>
+      </form>
+    </div>
   )
 }
 
@@ -250,7 +528,9 @@ function BudgetApprovalPage({ config, initialError }: { config: PublicConfig; in
               periodKind: periodKind as 'none' | 'daily' | 'monthly',
               periodLimit:
                 data.get('periodKind') === 'none' ? null : toAtomic(String(data.get('periodLimit'))),
-              expiresAt: null,
+              allowedOrigins: parseOrigins(String(data.get('allowedOrigins'))),
+              allowedRecipients: parseRecipients(String(data.get('allowedRecipients'))),
+              expiresAt: toIsoDateTime(String(data.get('expiresAt'))),
             })
             setResult('approved')
           } catch (cause) {
@@ -278,6 +558,32 @@ function BudgetApprovalPage({ config, initialError }: { config: PublicConfig; in
             <input name="perTransactionLimit" type="number" min="0.001" step="0.001" required defaultValue="1" />
           </label>
         </div>
+        <label>
+          Allowed merchant origins
+          <textarea
+            name="allowedOrigins"
+            rows={3}
+            placeholder="https://api.example.com&#10;Leave empty to allow any merchant"
+          />
+        </label>
+        <label>
+          Allowed recipient addresses
+          <textarea
+            name="allowedRecipients"
+            rows={3}
+            placeholder="0x…&#10;Leave empty to allow any recipient"
+          />
+        </label>
+        <label>
+          Authorization expires
+          <input
+            name="expiresAt"
+            type="datetime-local"
+            min={toDateTimeLocal(new Date())}
+            defaultValue={toDateTimeLocal(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000))}
+            required
+          />
+        </label>
         <div className="field-grid">
           <label>
             Reset period
@@ -320,4 +626,54 @@ function formatUsdc(value: bigint) {
   const whole = value / 1_000_000n
   const fraction = (value % 1_000_000n).toString().padStart(6, '0').replace(/0+$/, '')
   return `$${whole}${fraction ? `.${fraction}` : ''}`
+}
+
+function formatToken(amount: string, decimals: number) {
+  if (decimals === 0) return amount
+  const normalized = amount.padStart(decimals + 1, '0')
+  const whole = normalized.slice(0, -decimals) || '0'
+  const fraction = normalized.slice(-decimals).replace(/0+$/, '').slice(0, 6)
+  return `${whole}${fraction ? `.${fraction}` : ''}`
+}
+
+function fromAtomic(value: string) {
+  return formatToken(value, 6)
+}
+
+function parseOrigins(value: string) {
+  return splitLines(value).map((entry) => new URL(entry).origin)
+}
+
+function parseRecipients(value: string) {
+  const recipients = splitLines(value).map((entry) => entry.toLowerCase())
+  for (const recipient of recipients) {
+    if (!/^0x[0-9a-f]{40}$/.test(recipient)) throw new Error(`Invalid recipient address: ${recipient}`)
+  }
+  return recipients
+}
+
+function splitLines(value: string) {
+  return [...new Set(value.split(/[\n,]/).map((entry) => entry.trim()).filter(Boolean))]
+}
+
+function toIsoDateTime(value: string) {
+  return value ? new Date(value).toISOString() : null
+}
+
+function toDateTimeLocal(value: Date) {
+  const local = new Date(value.getTime() - value.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
+function delegationNeedsRenewal(expiresAt: string | null) {
+  if (!expiresAt) return true
+  return new Date(expiresAt).getTime() <= Date.now() + 7 * 24 * 60 * 60 * 1000
+}
+
+function eventLabel(action: string) {
+  return action
+    .split('.')
+    .join(' ')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
