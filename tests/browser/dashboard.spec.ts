@@ -21,7 +21,9 @@ const grant = {
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
-    localStorage.setItem('agent-wallet.access_token', 'browser-test-token')
+    if (sessionStorage.getItem('skip-fixture-auth') !== 'true') {
+      localStorage.setItem('agent-wallet.access_token', 'browser-test-token')
+    }
   })
   await page.route('**/api/config', (route) =>
     route.fulfill({
@@ -233,4 +235,71 @@ test('completes the OIDC callback and renders the requested page', async ({ page
   await expect
     .poll(() => page.evaluate(() => localStorage.getItem('agent-wallet.access_token')))
     .toBe('callback-access-token')
+})
+
+test('continues the existing identity session when switching to Sandbox', async ({ page }) => {
+  await page.route('**/api/sandbox/config', (route) =>
+    route.fulfill({
+      json: {
+        appOrigin: 'http://localhost:6230',
+        appBaseUrl: 'http://localhost:6230/sandbox',
+        oidcIssuer: 'https://fa.test/api/auth',
+        clientId: 'agent-wallet-web',
+        audience: 'http://localhost:6230/api/sandbox',
+        agentIssuer: 'https://fa.test/api/auth',
+        environment: 'sandbox',
+        network: 'eip155:84532',
+        paymentsEnabled: true,
+        cdpProjectId: null,
+      },
+    }),
+  )
+  await page.route('https://fa.test/api/auth/.well-known/openid-configuration', (route) =>
+    route.fulfill({
+      headers: { 'access-control-allow-origin': '*' },
+      json: { authorization_endpoint: 'https://identity.test/authorize' },
+    }),
+  )
+  await page.route('https://identity.test/authorize**', (route) =>
+    route.fulfill({ contentType: 'text/html', body: '<main>Realmroot SSO</main>' }),
+  )
+
+  await page.goto('/sandbox')
+  await page.waitForURL(/^https:\/\/identity\.test\/authorize/)
+
+  const authorization = new URL(page.url())
+  expect(authorization.searchParams.get('resource')).toBe('http://localhost:6230/api/sandbox')
+  expect(authorization.searchParams.get('redirect_uri')).toBe(
+    'http://localhost:6230/sandbox/oidc/callback',
+  )
+})
+
+test('signs out of both Wallet environments', async ({ page }) => {
+  const revokedTokens: string[] = []
+  await page.route('**/api/oidc/revoke', async (route) => {
+    revokedTokens.push((await route.request().postDataJSON()).token)
+    await route.fulfill({ status: 204 })
+  })
+  await page.goto('/')
+  await page.evaluate(() => {
+    sessionStorage.setItem('skip-fixture-auth', 'true')
+    localStorage.setItem('agent-wallet.refresh_token', 'production-refresh-token')
+    localStorage.setItem('agent-wallet.sandbox.access_token', 'sandbox-access-token')
+    localStorage.setItem('agent-wallet.sandbox.refresh_token', 'sandbox-refresh-token')
+  })
+
+  const navigation = page.waitForEvent('framenavigated')
+  await page.getByRole('button', { name: 'Sign out' }).click()
+  await navigation
+  await page.waitForLoadState()
+
+  await expect.poll(() => revokedTokens.sort()).toEqual([
+    'production-refresh-token',
+    'sandbox-refresh-token',
+  ])
+  expect(
+    await page.evaluate(() =>
+      Object.keys(localStorage).filter((key) => key.startsWith('agent-wallet')),
+    ),
+  ).toEqual([])
 })

@@ -1,7 +1,8 @@
 import type { PublicConfig } from '../auth'
-import { beginLogin } from '../auth'
+import { beginLogin, hasOtherEnvironmentSession } from '../auth'
 import { ArrowRight, Bot, KeyRound, ShieldCheck, WalletCards } from 'lucide-react'
 import { networkName } from '../environment'
+import { useEffect, useState } from 'react'
 
 export function LoginPage({
   config,
@@ -12,6 +13,16 @@ export function LoginPage({
   error?: string | null
   returnTo?: string
 }) {
+  const [loginError, setLoginError] = useState<string | null>(null)
+  const continuingSession = hasOtherEnvironmentSession()
+
+  useEffect(() => {
+    if (!continuingSession) return
+    void beginLogin(config, returnTo).catch((cause: unknown) => {
+      setLoginError(cause instanceof Error ? cause.message : 'OIDC login failed.')
+    })
+  }, [config, continuingSession, returnTo])
+
   return (
     <main className="login-page">
       <section className="login-hero">
@@ -42,10 +53,16 @@ export function LoginPage({
             One secure wallet for your account. Explicit, revocable spending boundaries for every Agent.
             Standard x402 payments on Base.
           </p>
-          <button className="primary-button login-cta" onClick={() => beginLogin(config, returnTo)}>
-            Continue with identity provider <ArrowRight size={17} />
+          <button
+            className="primary-button login-cta"
+            onClick={() => void beginLogin(config, returnTo).catch((cause: unknown) => {
+              setLoginError(cause instanceof Error ? cause.message : 'OIDC login failed.')
+            })}
+          >
+            {continuingSession ? 'Switching environment…' : 'Continue with identity provider'}
+            <ArrowRight size={17} />
           </button>
-          {error ? <p className="login-error" role="alert">{error}</p> : null}
+          {error || loginError ? <p className="login-error" role="alert">{error ?? loginError}</p> : null}
         </div>
         <div className="trust-row" aria-label="Product capabilities">
           <span><ShieldCheck size={16} /> Non-custodial controls</span>

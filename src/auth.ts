@@ -14,8 +14,13 @@ interface TokenResponse {
   expires_in: number
 }
 
-const prefix = walletEnvironment === 'sandbox' ? 'agent-wallet.sandbox.' : 'agent-wallet.'
+const productionPrefix = 'agent-wallet.'
+const sandboxPrefix = 'agent-wallet.sandbox.'
+const prefixes = [productionPrefix, sandboxPrefix] as const
+const prefix = walletEnvironment === 'sandbox' ? sandboxPrefix : productionPrefix
+const otherPrefix = walletEnvironment === 'sandbox' ? productionPrefix : sandboxPrefix
 let callbackExchange: Promise<string> | null = null
+let loginRedirect: Promise<void> | null = null
 
 export async function loadConfig(): Promise<PublicConfig> {
   const response = await walletApi.config.$get()
@@ -31,7 +36,26 @@ export function hasToken() {
   return Boolean(accessToken())
 }
 
-export async function beginLogin(config: PublicConfig, returnTo = '/') {
+export function hasRefreshToken() {
+  return Boolean(localStorage.getItem(`${prefix}refresh_token`))
+}
+
+export function hasOtherEnvironmentSession() {
+  return Boolean(
+    localStorage.getItem(`${otherPrefix}access_token`) ||
+    localStorage.getItem(`${otherPrefix}refresh_token`),
+  )
+}
+
+export function beginLogin(config: PublicConfig, returnTo = '/') {
+  loginRedirect ??= startLogin(config, returnTo).catch((error: unknown) => {
+    loginRedirect = null
+    throw error
+  })
+  return loginRedirect
+}
+
+async function startLogin(config: PublicConfig, returnTo: string) {
   const metadata = await discovery(config.oidcIssuer)
   const state = crypto.randomUUID()
   const nonce = crypto.randomUUID()
@@ -107,13 +131,17 @@ export async function refreshAccessToken(_config: PublicConfig) {
 
 export async function logout(_config: PublicConfig) {
   try {
-    const refreshToken = localStorage.getItem(`${prefix}refresh_token`)
-    if (refreshToken) {
-      const response = await walletApi.oidc.revoke.$post({ json: { token: refreshToken } })
-      if (!response.ok) throw new Error('OIDC token revocation failed.')
-    }
+    const refreshTokens = prefixes
+      .map((storagePrefix) => localStorage.getItem(`${storagePrefix}refresh_token`))
+      .filter((token): token is string => Boolean(token))
+    await Promise.all(
+      refreshTokens.map(async (token) => {
+        const response = await walletApi.oidc.revoke.$post({ json: { token } })
+        if (!response.ok) throw new Error('OIDC token revocation failed.')
+      }),
+    )
   } finally {
-    clearTokens()
+    for (const storagePrefix of prefixes) clearTokens(storagePrefix)
   }
 }
 
@@ -124,9 +152,9 @@ function storeTokens(tokens: TokenResponse) {
   localStorage.setItem(`${prefix}expires_at`, String(Date.now() + tokens.expires_in * 1000))
 }
 
-function clearTokens() {
+function clearTokens(storagePrefix = prefix) {
   for (const key of ['access_token', 'refresh_token', 'id_token', 'expires_at']) {
-    localStorage.removeItem(`${prefix}${key}`)
+    localStorage.removeItem(`${storagePrefix}${key}`)
   }
 }
 

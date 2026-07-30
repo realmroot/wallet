@@ -7,7 +7,7 @@ import type {
   WalletActionInput,
   WalletOverview,
 } from '../shared/contracts'
-import { accessToken, refreshAccessToken } from './auth'
+import { accessToken, hasRefreshToken, refreshAccessToken } from './auth'
 import { type PublicConfig, walletApi } from './api-client'
 import type { InferRequestType } from 'hono/client'
 
@@ -113,7 +113,7 @@ async function authenticated(
   }
 
   let response = await request()
-  if (response.status === 401 && localStorage.getItem('agent-wallet.refresh_token')) {
+  if (response.status === 401 && hasRefreshToken()) {
     await refreshAccessToken(config)
     response = await request()
   }
