@@ -398,7 +398,7 @@ function createAgentApi() {
     scheme: 'DPoP',
     bearerFormat: 'JWT',
     description:
-      'A FlareAuth target access token bound to the public key in the per-request DPoP proof.',
+      'A Realmroot target access token bound to the public key in the per-request DPoP proof.',
   })
   api.openAPIRegistry.registerComponent('securitySchemes', 'ScopeCatalog', {
     type: 'oauth2',
@@ -412,7 +412,7 @@ function createAgentApi() {
       },
     },
     description:
-      'OAuth scope catalog used by FlareAuth authorization discovery. Runtime requests use the DPoP security scheme.',
+      'OAuth scope catalog used by Realmroot authorization discovery. Runtime requests use the DPoP security scheme.',
   })
 
   const routes = api
@@ -553,7 +553,7 @@ function agentApiDocument(origin: string) {
     },
     'x-agent-auth': {
       scheme: 'DPoP',
-      provider: 'FlareAuth',
+      provider: 'Realmroot',
       managedBy: 'Restish authentication adapter',
     },
     'x-cli-config': {

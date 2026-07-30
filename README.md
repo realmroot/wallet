@@ -11,7 +11,7 @@ The initial network is Base Sepolia (`eip155:84532`) with exact USDC payments. N
 - The browser uses Authorization Code + PKCE with any compatible OIDC provider.
 - Browser tokens are stored in `localStorage`; Agent Wallet has no login cookie or server session.
 - The Worker validates human access tokens against the configured OIDC issuer/JWKS and keys users by `(iss, sub)`.
-- FlareAuth is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer and discovery document. The Agent token's top-level `sub` is the authorizing user, the RFC 8693 `act` chain identifies the current Host and stable Agent, and `cnf.jkt` binds the token to DPoP.
+- Realmroot is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer and discovery document. The Agent token's top-level `sub` is the authorizing user, the RFC 8693 `act` chain identifies the current Host and stable Agent, and `cnf.jkt` binds the token to DPoP.
 - Every Agent payment request requires a fresh DPoP proof. Replayed proofs are rejected.
 - Agent Wallet owns wallet mappings, CDP delegated signing, balances, testnet funding, budget policy, idempotency, settlement verification, and the payment audit log.
 - A Wallet-wide emergency pause blocks all new signatures. Grant pauses, expiration, merchant origins, recipient addresses, and amount limits are rechecked transactionally before each payment reservation.
@@ -39,7 +39,7 @@ Configure the OIDC provider with:
 - human scopes `wallet:read` and `wallet:manage`;
 - Agent scope `wallet:x402:pay`.
 
-Put the generated public client ID in `OIDC_CLIENT_ID`. With FlareAuth, set `OIDC_ISSUER` to `http://localhost:4179/api/auth`. Agent Wallet discovers the signing keys from that issuer's OIDC metadata instead of assuming a JWKS path. Register the Wallet API as an enabled `native` authorization-mode API Resource with the configured `OIDC_AUDIENCE` and the `wallet:read`, `wallet:manage`, and `wallet:x402:pay` scopes.
+Put the generated public client ID in `OIDC_CLIENT_ID`. With Realmroot, set `OIDC_ISSUER` to `http://localhost:4179/api/auth`. Agent Wallet discovers the signing keys from that issuer's OIDC metadata instead of assuming a JWKS path. Register the Wallet API as an enabled `native` authorization-mode API Resource with the configured `OIDC_AUDIENCE`; Realmroot discovers the Agent-facing `wallet:x402:pay` scope from the Wallet OpenAPI document. Register `wallet:read` and `wallet:manage` on the public SPA application.
 
 ## CDP setup
 
@@ -85,7 +85,7 @@ standard DPoP security scheme. It only selects the generic Realmroot target
 authentication adapter; Wallet-specific commands or credentials are not
 installed.
 
-FlareAuth's Restish adapter owns the Agent identity, target access token, and
+Realmroot's Restish adapter owns the Agent identity, target access token, and
 grant-specific DPoP key. The Agent calls its original business API, passes an
 unmodified `PaymentRequired` response to `createX402Payment`, together with a
 stable `Idempotency-Key`. It completes controller budget approval when the
@@ -131,7 +131,7 @@ pnpm build
 ```
 
 The Worker integration suite covers OIDC authentication, CDP wallet metadata,
-Agent grants, FA-style Agent JWT validation, DPoP binding/replay rejection,
+Agent grants, Realmroot Agent JWT validation, DPoP binding/replay rejection,
 budget enforcement, idempotency, and exact Base Sepolia USDC payment signing.
 It also covers concurrent budget enforcement, stale signing-reservation
 recovery, Wallet and grant pause/resume, grant edit/revoke, expiration,

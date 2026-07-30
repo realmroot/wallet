@@ -88,7 +88,7 @@ export async function authenticateAgent(request: Request, env: Env): Promise<Age
 
   await verifyDpopProof(request, rawToken, confirmation.jkt, payload.iss!, env.DB)
 
-  const agent = resolveFlareAuthAgent(payload, env.OIDC_ISSUER)
+  const agent = resolveRealmrootAgent(payload, env.OIDC_ISSUER)
   if (typeof payload.sub !== 'string') {
     throw agentUnauthorized('Agent access token has no authorizing user.')
   }
@@ -128,7 +128,7 @@ async function discoverKeySet(issuer: string) {
   return createRemoteJWKSet(new URL(metadata.jwks_uri))
 }
 
-function resolveFlareAuthAgent(payload: JWTPayload, issuer: string) {
+function resolveRealmrootAgent(payload: JWTPayload, issuer: string) {
   const host = payload.act as
     | {
         iss?: unknown
@@ -146,7 +146,7 @@ function resolveFlareAuthAgent(payload: JWTPayload, issuer: string) {
     agent.actor_type !== 'agent' ||
     typeof agent.sub !== 'string'
   ) {
-    throw agentUnauthorized('A delegated FlareAuth Agent access token is required.')
+    throw agentUnauthorized('A delegated Realmroot Agent access token is required.')
   }
   return { issuer, subject: agent.sub }
 }

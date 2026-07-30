@@ -635,7 +635,7 @@ describe('Agent Wallet', () => {
     expect(response.status).toBe(401)
     expect(await response.json()).toMatchObject({
       error: 'unauthorized',
-      message: 'A delegated FlareAuth Agent access token is required.',
+      message: 'A delegated Realmroot Agent access token is required.',
     })
     expect(response.headers.get('www-authenticate')).toContain('invalid_token')
   })
