@@ -211,7 +211,12 @@ export function createHumanApi() {
       const principal = await authenticateHuman(c.req.raw, c.env, 'wallet:read')
       const user = await getOrCreateUser(c.env.DB, principal)
       const { runtime, delegationExpiresAt } = await getWalletRuntime(c.env, user)
-      if (delegationExpiresAt && delegationExpiresAt !== user.delegationExpiresAt) {
+      if (
+        delegationExpiresAt !== undefined &&
+        delegationExpiresAt !== user.delegationExpiresAt &&
+        user.cdpUserId &&
+        user.walletAddress
+      ) {
         await updateWallet(c.env.DB, user.id, {
           cdpUserId: user.cdpUserId!,
           address: user.walletAddress!,
@@ -445,7 +450,7 @@ function createAgentApi() {
       const walletRuntime =
         state.user && state.grant ? await getWalletRuntime(c.env, state.user) : null
       if (
-        walletRuntime?.delegationExpiresAt &&
+        walletRuntime?.delegationExpiresAt !== undefined &&
         walletRuntime.delegationExpiresAt !== state.user?.delegationExpiresAt
       ) {
         await updateWallet(c.env.DB, state.user!.id, {

@@ -9,6 +9,11 @@ overrides:
   uuid: 11.1.1
   ws: 8.21.0
 
+patchedDependencies:
+  '@coinbase/cdp-sdk@1.54.0':
+    hash: b1dc14b8ccf8899be6d1452b620f54a769cc020bc610de33c1f7f4fea495b889
+    path: patches/@coinbase__cdp-sdk@1.54.0.patch
+
 importers:
 
   .:
@@ -24,7 +29,7 @@ importers:
         version: 0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(use-sync-external-store@1.6.0(react@19.2.5))(utf-8-validate@6.0.6)(zod@4.4.3))(@coinbase/cdp-hooks@0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(use-sync-external-store@1.6.0(react@19.2.5))(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@coinbase/cdp-sdk':
         specifier: 1.54.0
-        version: 1.54.0(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+        version: 1.54.0(patch_hash=b1dc14b8ccf8899be6d1452b620f54a769cc020bc610de33c1f7f4fea495b889)(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       '@fontsource/dm-mono':
         specifier: ^5.3.0
         version: 5.3.0
@@ -2838,7 +2843,7 @@ snapshots:
       - '@types/react-dom'
       - react-dom
 
-  '@coinbase/cdp-sdk@1.54.0(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)':
+  '@coinbase/cdp-sdk@1.54.0(patch_hash=b1dc14b8ccf8899be6d1452b620f54a769cc020bc610de33c1f7f4fea495b889)(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)':
     dependencies:
       '@solana-program/system': 0.10.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))
       '@solana-program/token': 0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))

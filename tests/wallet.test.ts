@@ -1,8 +1,17 @@
 import { env, SELF } from 'cloudflare:test'
 import { cleanupExpiredReservations } from '../server/repository'
-import { hasMatchingDeveloperJwtIdentity, walletAsset } from '../server/cdp'
+import {
+  hasMatchingDeveloperJwtIdentity,
+  isInactiveDelegationError,
+  walletAsset,
+} from '../server/cdp'
 import { hasMatchingUsdcTransfer } from '../server/settlement'
-import { withExplicitEip712Domain } from '../server/signer'
+import {
+  appendPaymentIdentifier,
+  requireCdpSignerConfig,
+  withExplicitEip712Domain,
+} from '../server/signer'
+import { paymentRequiredSchema } from '../shared/contracts'
 import { buildAgentWallet } from '../server/agent-wallet'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
@@ -89,6 +98,39 @@ describe('Agent Wallet', () => {
       { name: 'chainId', type: 'uint256' },
       { name: 'verifyingContract', type: 'address' },
     ])
+  })
+
+  it('recognizes a revoked CDP signing delegation', () => {
+    expect(
+      isInactiveDelegationError({
+        statusCode: 403,
+        errorType: 'delegation_not_found',
+      }),
+    ).toBe(true)
+    expect(
+      isInactiveDelegationError({
+        statusCode: 503,
+        errorType: 'service_unavailable',
+      }),
+    ).toBe(false)
+    expect(isInactiveDelegationError(new Error('Delegation failed.'))).toBe(false)
+  })
+
+  it('requires a CDP project ID for custom-auth delegated signing', () => {
+    const credentials = {
+      CDP_API_KEY_ID: 'key-id',
+      CDP_API_KEY_SECRET: 'key-secret',
+      CDP_WALLET_SECRET: 'wallet-secret',
+    } as Env
+    expect(() => requireCdpSignerConfig(credentials)).toThrow(
+      'CDP server credentials and project ID are not configured.',
+    )
+    expect(() =>
+      requireCdpSignerConfig({
+        ...credentials,
+        CDP_PROJECT_ID: 'project-id',
+      }),
+    ).not.toThrow()
   })
 
   it('binds CDP users to the current OIDC subject', () => {
@@ -688,13 +730,31 @@ describe('Agent Wallet', () => {
     const token = await humanToken()
     await provisionAndGrant(token)
     const agentToken = await createAgentToken()
+    const requirement = {
+      ...paymentRequired('25000'),
+      resource: {
+        url: 'https://merchant.test/weather',
+        description: 'Paid test weather',
+        mimeType: 'application/json',
+        serviceName: 'ZPan Cloud',
+        tags: ['storage', 'upload'],
+        iconUrl: 'https://merchant.test/icon.svg',
+      },
+      extensions: {
+        'payment-identifier': {
+          info: { required: true },
+          schema: { type: 'object' },
+        },
+      },
+    }
+    const idempotencyKey = crypto.randomUUID()
     const authorization = await SELF.fetch(walletUrl, {
       method: 'POST',
       headers: {
         authorization: `DPoP ${agentToken}`,
         dpop: await dpopProof(agentToken, walletUrl, 'POST'),
-        'idempotency-key': crypto.randomUUID(),
-        'payment-required': encodePaymentRequiredHeader(paymentRequired('25000')),
+        'idempotency-key': idempotencyKey,
+        'payment-required': encodePaymentRequiredHeader(requirement),
       },
     })
 
@@ -703,9 +763,34 @@ describe('Agent Wallet', () => {
       paymentId: string
       paymentPayload: Record<string, unknown>
     }>()
-    expect(
-      decodePaymentSignatureHeader(authorization.headers.get('payment-signature')!),
-    ).toEqual(authorizationBody.paymentPayload)
+    const paymentSignature = decodePaymentSignatureHeader(
+      authorization.headers.get('payment-signature')!,
+    )
+    expect(paymentSignature).toEqual(authorizationBody.paymentPayload)
+    expect(paymentSignature.resource).toEqual(requirement.resource)
+    expect(paymentSignature.extensions).toMatchObject({
+      'payment-identifier': {
+        info: {
+          required: true,
+          id: authorizationBody.paymentId,
+        },
+      },
+    })
+    expect(authorizationBody.paymentId).toMatch(/^[A-Za-z0-9_-]{16,128}$/)
+
+    const replay = await SELF.fetch(walletUrl, {
+      method: 'POST',
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, walletUrl, 'POST'),
+        'idempotency-key': idempotencyKey,
+        'payment-required': encodePaymentRequiredHeader(requirement),
+      },
+    })
+    expect(replay.status, await replay.clone().text()).toBe(200)
+    expect(decodePaymentSignatureHeader(replay.headers.get('payment-signature')!)).toEqual(
+      paymentSignature,
+    )
 
     const transaction = `0x${'cd'.repeat(32)}`
     const settlementUrl = `${walletUrl}/${authorizationBody.paymentId}/settlement`
@@ -728,6 +813,41 @@ describe('Agent Wallet', () => {
       status: 'settled',
       transactionHash: transaction,
     })
+  })
+
+  it('normalizes nullish x402 resource metadata and validates payment identifiers', () => {
+    const requirement = paymentRequired('25000')
+    const parsed = paymentRequiredSchema.parse({
+      ...requirement,
+      resource: {
+        url: requirement.resource.url,
+        description: null,
+        mimeType: null,
+        serviceName: null,
+        tags: null,
+        iconUrl: null,
+      },
+    })
+    expect(JSON.parse(JSON.stringify(parsed.resource))).toEqual({
+      url: requirement.resource.url,
+    })
+
+    expect(() =>
+      appendPaymentIdentifier(
+        {
+          x402Version: 2,
+          resource: requirement.resource,
+          accepted: requirement.accepts[0]!,
+          payload: {},
+          extensions: {
+            'payment-identifier': {
+              info: { required: true },
+            },
+          },
+        },
+        'too-short',
+      ),
+    ).toThrow(/Payment identifier/)
   })
 
   it('rejects ambiguous or malformed x402 payment input', async () => {

@@ -73,6 +73,9 @@
       "esbuild",
       "sharp",
       "workerd"
-    ]
+    ],
+    "patchedDependencies": {
+      "@coinbase/cdp-sdk@1.54.0": "patches/@coinbase__cdp-sdk@1.54.0.patch"
+    }
   }
 }

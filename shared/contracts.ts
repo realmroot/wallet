@@ -23,14 +23,38 @@ const networkId = z
   .string()
   .regex(/^[a-z0-9]+:[A-Za-z0-9._-]+$/)
   .openapi({ description: 'CAIP-2 network identifier.', example: 'eip155:84532' })
+const printableAscii = /^[\x20-\x7e]+$/
 
 export const paymentRequiredSchema = z
   .object({
     x402Version: z.number().int().positive(),
     resource: z.object({
       url: z.url(),
-      description: z.string().optional(),
-      mimeType: z.string().optional(),
+      description: z
+        .string()
+        .nullish()
+        .transform((value) => value ?? undefined),
+      mimeType: z
+        .string()
+        .nullish()
+        .transform((value) => value ?? undefined),
+      serviceName: z
+        .string()
+        .min(1)
+        .max(32)
+        .regex(printableAscii)
+        .nullish()
+        .transform((value) => value ?? undefined),
+      tags: z
+        .array(z.string().min(1).max(32).regex(printableAscii))
+        .max(5)
+        .nullish()
+        .transform((value) => value ?? undefined),
+      iconUrl: z
+        .string()
+        .max(2048)
+        .nullish()
+        .transform((value) => value ?? undefined),
     }),
     accepts: z
       .array(

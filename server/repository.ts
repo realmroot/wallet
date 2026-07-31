@@ -193,7 +193,7 @@ export async function getAgentWalletState(db: D1Database, principal: AgentPrinci
 export async function updateWallet(
   db: D1Database,
   userId: string,
-  input: { cdpUserId: string; address: string; delegationExpiresAt: string },
+  input: { cdpUserId: string; address: string; delegationExpiresAt: string | null },
 ) {
   await db
     .prepare(

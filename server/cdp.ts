@@ -28,7 +28,10 @@ export async function verifyWalletRegistration(
       (account) => account.address.toLowerCase() === input.address.toLowerCase(),
     )
     if (!ownsAddress) throw badRequest('The EVM account does not belong to this CDP end user.')
-    const delegation = await endUser.getDelegation()
+    const delegation = await cdp.endUser.getDelegationForEndUser({
+      userId: input.cdpUserId,
+      projectId: env.CDP_PROJECT_ID,
+    })
     if (new Date(delegation.expiresAt).getTime() <= Date.now()) {
       throw badRequest('The CDP signing delegation is already expired.')
     }
@@ -75,15 +78,20 @@ export async function getWalletRuntime(env: Env, user: WalletUser): Promise<{
 
   const cdp = createCdpClient(env)
   try {
-    const [balances, endUser] = await Promise.all([
+    const [balances, delegation] = await Promise.all([
       cdp.evm.listTokenBalances({
         address: user.walletAddress as `0x${string}`,
         network: cdpNetwork(env.WALLET_NETWORK),
         pageSize: 100,
       }),
-      cdp.endUser.getEndUser({ userId: user.cdpUserId }),
+      cdp.endUser.getDelegationForEndUser({
+        userId: user.cdpUserId,
+        projectId: env.CDP_PROJECT_ID,
+      }).catch((error) => {
+        if (isInactiveDelegationError(error)) return null
+        throw error
+      }),
     ])
-    const delegation = await endUser.getDelegation().catch(() => null)
     const asset = walletAsset(env)
     const usdc = balances.balances.find(
       (balance) => balance.token.contractAddress.toLowerCase() === asset.address.toLowerCase(),
@@ -168,4 +176,10 @@ export function createCdpClient(env: Env) {
     apiKeySecret: env.CDP_API_KEY_SECRET,
     walletSecret: env.CDP_WALLET_SECRET,
   })
+}
+
+export function isInactiveDelegationError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { statusCode?: unknown; errorType?: unknown }
+  return candidate.statusCode === 403 && candidate.errorType === 'delegation_not_found'
 }
