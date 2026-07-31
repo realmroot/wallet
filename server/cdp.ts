@@ -77,6 +77,7 @@ export async function getWalletRuntime(env: Env, user: WalletUser): Promise<{
   }
 
   const cdp = createCdpClient(env)
+  const cdpUserId = user.cdpUserId
   try {
     const [balances, delegation] = await Promise.all([
       cdp.evm.listTokenBalances({
@@ -84,13 +85,12 @@ export async function getWalletRuntime(env: Env, user: WalletUser): Promise<{
         network: cdpNetwork(env.WALLET_NETWORK),
         pageSize: 100,
       }),
-      cdp.endUser.getDelegationForEndUser({
-        userId: user.cdpUserId,
-        projectId: env.CDP_PROJECT_ID,
-      }).catch((error) => {
-        if (isInactiveDelegationError(error)) return null
-        throw error
-      }),
+      activeDelegationOrNull(() =>
+        cdp.endUser.getDelegationForEndUser({
+          userId: cdpUserId,
+          projectId: env.CDP_PROJECT_ID,
+        }),
+      ),
     ])
     const asset = walletAsset(env)
     const usdc = balances.balances.find(
@@ -182,4 +182,13 @@ export function isInactiveDelegationError(error: unknown) {
   if (!error || typeof error !== 'object') return false
   const candidate = error as { statusCode?: unknown; errorType?: unknown }
   return candidate.statusCode === 403 && candidate.errorType === 'delegation_not_found'
+}
+
+export async function activeDelegationOrNull<T>(lookup: () => Promise<T>) {
+  try {
+    return await lookup()
+  } catch (error) {
+    if (isInactiveDelegationError(error)) return null
+    throw error
+  }
 }
