@@ -1,7 +1,9 @@
 import type { PaymentRequired, WalletAccount } from '../shared/contracts'
-import { createCdpClient } from './cdp'
+import { createCdpClient, isInactiveDelegationError } from './cdp'
+import { forbidden } from './errors'
 import { walletNetworkDefinition, walletNetworkRpcUrl } from './network'
 import { x402Client } from '@x402/core/client'
+import type { PaymentPayload } from '@x402/core/types'
 import type { ClientEvmSigner } from '@x402/evm'
 import { registerExactEvmScheme } from '@x402/evm/exact/client'
 import { ExactSvmScheme, type ClientSvmSigner } from '@x402/svm'
@@ -12,6 +14,8 @@ import {
   type SignatureBytes,
 } from '@solana/kit'
 import { privateKeyToAccount } from 'viem/accounts'
+
+const paymentIdentifierPattern = /^[A-Za-z0-9_-]{16,128}$/
 
 interface WalletSignerInput {
   cdpUserId: string
@@ -37,7 +41,37 @@ export async function createX402Payment(env: Env, input: WalletSignerInput) {
       }),
     )
   }
-  return client.createPaymentPayload(input.paymentRequired)
+  const paymentPayload = await client.createPaymentPayload(input.paymentRequired)
+  return appendPaymentIdentifier(paymentPayload, input.idempotencyKey)
+}
+
+export function appendPaymentIdentifier(paymentPayload: PaymentPayload, paymentId: string): PaymentPayload {
+  const extension = paymentPayload.extensions?.['payment-identifier']
+  if (!isPaymentIdentifierExtension(extension)) return paymentPayload
+  if (!paymentIdentifierPattern.test(paymentId)) {
+    throw new Error('Payment identifier must be 16-128 characters using letters, digits, hyphens, or underscores.')
+  }
+  return {
+    ...paymentPayload,
+    extensions: {
+      ...paymentPayload.extensions,
+      'payment-identifier': {
+        ...extension,
+        info: {
+          ...extension.info,
+          id: paymentId,
+        },
+      },
+    },
+  }
+}
+
+function isPaymentIdentifierExtension(
+  extension: unknown,
+): extension is Record<string, unknown> & { info: Record<string, unknown> & { required: boolean } } {
+  if (!extension || typeof extension !== 'object') return false
+  const info = (extension as Record<string, unknown>).info
+  return Boolean(info && typeof info === 'object' && typeof (info as Record<string, unknown>).required === 'boolean')
 }
 
 function createEvmSigner(env: Env, input: WalletSignerInput): ClientEvmSigner {
@@ -52,22 +86,35 @@ function createEvmSigner(env: Env, input: WalletSignerInput): ClientEvmSigner {
     }
     return account
   }
+  requireCdpSignerConfig(env)
   return {
     address: walletAddress,
     async signTypedData(typedData) {
-      const result = await createCdpClient(env).endUser.signEvmTypedData({
-        userId: input.cdpUserId,
-        address: walletAddress,
-        typedData: withExplicitEip712Domain(typedData),
-        idempotencyKey: input.idempotencyKey,
-      })
-      return result.signature as `0x${string}`
+      const cdp = createCdpClient(env)
+      try {
+        const result = await cdp.endUser.signEvmTypedData({
+          userId: input.cdpUserId,
+          address: walletAddress,
+          typedData: withExplicitEip712Domain(typedData),
+          idempotencyKey: input.idempotencyKey,
+          projectId: env.CDP_PROJECT_ID,
+        })
+        return result.signature as `0x${string}`
+      } catch (error) {
+        if (isInactiveDelegationError(error)) {
+          throw forbidden(
+            'CDP signing delegation is inactive. Re-authorize the Wallet and retry with a new idempotency key.',
+          )
+        }
+        throw error
+      }
     },
   }
 }
 
 function createSolanaSigner(env: Env, input: WalletSignerInput): ClientSvmSigner {
   const signerAddress = address(input.account.address)
+  if (env.SIGNER_MODE !== 'mock') requireCdpSignerConfig(env)
   return {
     address: signerAddress,
     async signTransactions(transactions) {
@@ -77,12 +124,23 @@ function createSolanaSigner(env: Env, input: WalletSignerInput): ClientSvmSigner
             return { [signerAddress]: mockSolanaSignature(index) }
           }
           const encoded = getBase64EncodedWireTransaction(transaction)
-          const result = await createCdpClient(env).endUser.signSolanaTransaction({
-            userId: input.cdpUserId,
-            address: input.account.address,
-            transaction: encoded,
-            idempotencyKey: `${input.idempotencyKey}-${index}`,
-          })
+          let result
+          try {
+            result = await createCdpClient(env).endUser.signSolanaTransaction({
+              userId: input.cdpUserId,
+              address: input.account.address,
+              transaction: encoded,
+              idempotencyKey: `${input.idempotencyKey}-${index}`,
+              projectId: env.CDP_PROJECT_ID,
+            })
+          } catch (error) {
+            if (isInactiveDelegationError(error)) {
+              throw forbidden(
+                'CDP signing delegation is inactive. Re-authorize the Wallet and retry with a new idempotency key.',
+              )
+            }
+            throw error
+          }
           const signed = getTransactionDecoder().decode(decodeBase64(result.signedTransaction))
           const signature = signed.signatures[signerAddress]
           if (!signature) throw new Error('CDP did not return the Solana account signature.')
@@ -104,6 +162,16 @@ function decodeBase64(value: string) {
   return Uint8Array.from(decoded, (character) => character.charCodeAt(0))
 }
 
+export function requireCdpSignerConfig(env: Env) {
+  if (
+    !env.CDP_API_KEY_ID ||
+    !env.CDP_API_KEY_SECRET ||
+    !env.CDP_WALLET_SECRET ||
+    !env.CDP_PROJECT_ID
+  ) {
+    throw new Error('CDP server credentials and project ID are not configured.')
+  }
+}
 interface Eip712Input {
   domain?: {
     name?: string

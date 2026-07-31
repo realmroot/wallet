@@ -233,7 +233,7 @@ export function createHumanApi() {
         getWalletRuntime(c.env, user, network.id),
         getWalletDelegationExpiry(c.env, user),
       ])
-      if (delegationExpiresAt) {
+      if (delegationExpiresAt !== undefined && user.cdpUserId) {
         const changed = user.accounts.filter(
           (account) => account.delegationExpiresAt !== delegationExpiresAt,
         )
@@ -478,7 +478,10 @@ function createAgentApi() {
         getAgentWalletRoute.operationId,
       )
       const state = await getAgentWalletState(c.env.DB, principal)
-      const [walletRuntimes, delegationExpiresAt]: [WalletRuntime[], string | null] =
+      const [walletRuntimes, delegationExpiresAt]: [
+        WalletRuntime[],
+        string | null | undefined,
+      ] =
         state.user && state.grant
           ? await Promise.all([
               Promise.all(
@@ -488,8 +491,8 @@ function createAgentApi() {
               ),
               getWalletDelegationExpiry(c.env, state.user),
             ])
-          : [[], null]
-      if (delegationExpiresAt && state.user) {
+          : [[], undefined]
+      if (delegationExpiresAt !== undefined && state.user?.cdpUserId) {
         const changed = state.user.accounts.some(
           (account) => account.delegationExpiresAt !== delegationExpiresAt,
         )

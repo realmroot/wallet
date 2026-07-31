@@ -43,7 +43,10 @@ export async function verifyWalletRegistration(
         throw badRequest(`The ${account.family === 'evm' ? 'EVM' : 'Solana'} account does not belong to this CDP end user.`)
       }
     }
-    const delegation = await endUser.getDelegation()
+    const delegation = await cdp.endUser.getDelegationForEndUser({
+      userId: input.cdpUserId,
+      projectId: env.CDP_PROJECT_ID,
+    })
     if (new Date(delegation.expiresAt).getTime() <= Date.now()) {
       throw badRequest('The CDP signing delegation is already expired.')
     }
@@ -136,7 +139,7 @@ export async function getWalletRuntime(
 }
 
 export async function getWalletDelegationExpiry(env: Env, user: WalletUser) {
-  if (env.SIGNER_MODE === 'mock' || !user.cdpUserId || user.accounts.length === 0) return null
+  if (env.SIGNER_MODE === 'mock' || !user.cdpUserId || user.accounts.length === 0) return undefined
   try {
     return await currentDelegationExpiry(env, user.cdpUserId)
   } catch (error) {
@@ -147,7 +150,7 @@ export async function getWalletDelegationExpiry(env: Env, user: WalletUser) {
         error: error instanceof Error ? error.message : String(error),
       }),
     )
-    return null
+    return undefined
   }
 }
 
@@ -285,9 +288,13 @@ async function solanaRpc<T>(url: string, method: string, params: unknown[]): Pro
 }
 
 async function currentDelegationExpiry(env: Env, cdpUserId: string) {
-  if (env.SIGNER_MODE === 'mock') return null
-  const endUser = await createCdpClient(env).endUser.getEndUser({ userId: cdpUserId })
-  return (await endUser.getDelegation().catch(() => null))?.expiresAt ?? null
+  const delegation = await activeDelegationOrNull(() =>
+    createCdpClient(env).endUser.getDelegationForEndUser({
+      userId: cdpUserId,
+      projectId: env.CDP_PROJECT_ID,
+    }),
+  )
+  return delegation?.expiresAt ?? null
 }
 
 function validateAccountFamilies(accounts: UpdateWalletInput['accounts']) {
@@ -298,5 +305,20 @@ function validateAccountFamilies(accounts: UpdateWalletInput['accounts']) {
     if (account.family === 'solana' && account.address.startsWith('0x')) {
       throw badRequest('The Solana account address is invalid.')
     }
+  }
+}
+
+export function isInactiveDelegationError(error: unknown) {
+  if (!error || typeof error !== 'object') return false
+  const candidate = error as { statusCode?: unknown; errorType?: unknown }
+  return candidate.statusCode === 403 && candidate.errorType === 'delegation_not_found'
+}
+
+export async function activeDelegationOrNull<T>(lookup: () => Promise<T>) {
+  try {
+    return await lookup()
+  } catch (error) {
+    if (isInactiveDelegationError(error)) return null
+    throw error
   }
 }

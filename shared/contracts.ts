@@ -25,6 +25,7 @@ const networkId = z
   .regex(/^[a-z0-9]+:[A-Za-z0-9._-]+$/)
   .openapi({ description: 'CAIP-2 network identifier.', example: 'eip155:84532' })
 const accountFamily = z.enum(['evm', 'solana'])
+const printableAscii = /^[\x20-\x7e]+$/
 
 const paymentOptionSchema = z.object({
   scheme: z.string(),
@@ -41,8 +42,36 @@ export const paymentRequiredSchema = z
     x402Version: z.number().int().positive(),
     resource: z.object({
       url: z.url(),
-      description: z.string().optional(),
-      mimeType: z.string().optional(),
+      description: z
+        .string()
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
+      mimeType: z
+        .string()
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
+      serviceName: z
+        .string()
+        .min(1)
+        .max(32)
+        .regex(printableAscii)
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
+      tags: z
+        .array(z.string().min(1).max(32).regex(printableAscii))
+        .max(5)
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
+      iconUrl: z
+        .string()
+        .max(2048)
+        .nullish()
+        .transform((value) => value ?? undefined)
+        .optional(),
     }),
     accepts: z.array(paymentOptionSchema).min(1),
     extensions: z.record(z.string(), z.unknown()).optional(),

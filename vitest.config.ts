@@ -41,6 +41,70 @@ export default defineConfig({
         },
         outboundService: async (request) => {
           const url = new URL(request.url)
+          if (url.origin === 'https://cdp.test') {
+            const projectId = '11111111-1111-4111-8111-111111111111'
+            const signingPath =
+              '/platform/v2/embedded-wallet-api/end-users/custom-auth-user/evm/sign/typed-data'
+            const solanaSigningPath =
+              '/platform/v2/embedded-wallet-api/end-users/custom-auth-user/solana/sign/transaction'
+            const delegationMatch = url.pathname.match(
+              /^\/platform\/v2\/embedded-wallet-api\/end-users\/([^/]+)\/delegation$/,
+            )
+            if (delegationMatch && request.method === 'GET') {
+              if (url.searchParams.get('projectID') !== projectId) {
+                return cdpTestError(400, 'invalid_request', 'projectID is required.')
+              }
+              if (delegationMatch[1] === 'revoked-user') {
+                return cdpTestError(403, 'delegation_not_found', 'Delegation is inactive.')
+              }
+              if (delegationMatch[1] === 'unavailable-user') {
+                return cdpTestError(503, 'service_unavailable', 'CDP is unavailable.')
+              }
+              return Response.json({ expiresAt: '2099-01-01T00:00:00.000Z' })
+            }
+            if (url.pathname === signingPath && request.method === 'POST') {
+              if (url.searchParams.get('projectID') !== projectId) {
+                return cdpTestError(400, 'invalid_request', 'projectID is required.')
+              }
+              if (request.headers.get('X-Idempotency-Key') !== 'payment-request-12345678') {
+                return cdpTestError(400, 'invalid_request', 'X-Idempotency-Key is required.')
+              }
+              const body = await request.json<{
+                address?: string
+                typedData?: { primaryType?: string }
+              }>()
+              if (
+                body.address !== '0x1111111111111111111111111111111111111111' ||
+                body.typedData?.primaryType !== 'Payment'
+              ) {
+                return cdpTestError(400, 'invalid_request', 'Unexpected signing payload.')
+              }
+              return Response.json({ signature: `0x${'ab'.repeat(65)}` })
+            }
+            if (url.pathname === solanaSigningPath && request.method === 'POST') {
+              if (url.searchParams.get('projectID') !== projectId) {
+                return cdpTestError(400, 'invalid_request', 'projectID is required.')
+              }
+              if (
+                request.headers.get('X-Idempotency-Key') !==
+                'solana-payment-request-12345678'
+              ) {
+                return cdpTestError(400, 'invalid_request', 'X-Idempotency-Key is required.')
+              }
+              const body = await request.json<{
+                address?: string
+                transaction?: string
+              }>()
+              if (
+                body.address !== '11111111111111111111111111111111' ||
+                body.transaction !== 'AQID'
+              ) {
+                return cdpTestError(400, 'invalid_request', 'Unexpected signing payload.')
+              }
+              return Response.json({ signedTransaction: 'BAUG' })
+            }
+            return cdpTestError(404, 'not_found', 'Unexpected CDP test request.')
+          }
           if (url.origin !== 'https://fa.test') {
             return new Response('Unexpected outbound request.', { status: 502 })
           }
@@ -71,3 +135,14 @@ export default defineConfig({
     setupFiles: ['./tests/apply-migrations.ts'],
   },
 })
+
+function cdpTestError(status: number, errorType: string, errorMessage: string) {
+  return Response.json(
+    {
+      errorType,
+      errorMessage,
+      correlationId: 'cdp-test-correlation',
+    },
+    { status },
+  )
+}

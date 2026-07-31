@@ -1,0 +1,160 @@
+diff --git a/_cjs/client/end-user/endUser.js b/_cjs/client/end-user/endUser.js
+--- a/_cjs/client/end-user/endUser.js
++++ b/_cjs/client/end-user/endUser.js
+@@ -216,8 +216,8 @@ class EndUserClient {
+         analytics_js_1.Analytics.trackAction({
+             action: "get_delegation_for_end_user",
+         });
+-        const { userId } = options;
+-        return index_js_1.CdpOpenApiClient.getDelegationForEndUser(userId);
++        const { userId, projectId } = options;
++        return index_js_1.CdpOpenApiClient.getDelegationForEndUser(userId, projectId ? { projectID: projectId } : undefined);
+     }
+     /**
+      * Revokes all active delegations for the specified end user.
+@@ -350,7 +350,7 @@ class EndUserClient {
+      */
+     async signEvmTypedData(options) {
+         analytics_js_1.Analytics.trackAction({ action: "end_user_sign_evm_typed_data" });
+-        return index_js_1.CdpOpenApiClient.signEvmTypedDataWithEndUserAccount(options.userId, { address: options.address, typedData: options.typedData }, undefined, options.idempotencyKey);
++        return index_js_1.CdpOpenApiClient.signEvmTypedDataWithEndUserAccount(options.userId, { address: options.address, typedData: options.typedData }, options.projectId ? { projectID: options.projectId } : undefined, options.idempotencyKey);
+     }
+     // ─── Delegated EVM Send Methods ───
+     /**
+@@ -501,7 +501,7 @@ class EndUserClient {
+      */
+     async signSolanaTransaction(options) {
+         analytics_js_1.Analytics.trackAction({ action: "end_user_sign_solana_transaction" });
+-        return index_js_1.CdpOpenApiClient.signSolanaTransactionWithEndUserAccount(options.userId, { address: options.address, transaction: options.transaction }, undefined, options.idempotencyKey);
++        return index_js_1.CdpOpenApiClient.signSolanaTransactionWithEndUserAccount(options.userId, { address: options.address, transaction: options.transaction }, options.projectId ? { projectID: options.projectId } : undefined, options.idempotencyKey);
+     }
+     // ─── Delegated Solana Send Methods ───
+     /**
+diff --git a/_esm/client/end-user/endUser.js b/_esm/client/end-user/endUser.js
+--- a/_esm/client/end-user/endUser.js
++++ b/_esm/client/end-user/endUser.js
+@@ -210,8 +210,8 @@ export class EndUserClient {
+         Analytics.trackAction({
+             action: "get_delegation_for_end_user",
+         });
+-        const { userId } = options;
+-        return CdpOpenApiClient.getDelegationForEndUser(userId);
++        const { userId, projectId } = options;
++        return CdpOpenApiClient.getDelegationForEndUser(userId, projectId ? { projectID: projectId } : undefined);
+     }
+     /**
+      * Revokes all active delegations for the specified end user.
+@@ -344,7 +344,7 @@ export class EndUserClient {
+      */
+     async signEvmTypedData(options) {
+         Analytics.trackAction({ action: "end_user_sign_evm_typed_data" });
+-        return CdpOpenApiClient.signEvmTypedDataWithEndUserAccount(options.userId, { address: options.address, typedData: options.typedData }, undefined, options.idempotencyKey);
++        return CdpOpenApiClient.signEvmTypedDataWithEndUserAccount(options.userId, { address: options.address, typedData: options.typedData }, options.projectId ? { projectID: options.projectId } : undefined, options.idempotencyKey);
+     }
+     // ─── Delegated EVM Send Methods ───
+     /**
+@@ -495,7 +495,7 @@ export class EndUserClient {
+      */
+     async signSolanaTransaction(options) {
+         Analytics.trackAction({ action: "end_user_sign_solana_transaction" });
+-        return CdpOpenApiClient.signSolanaTransactionWithEndUserAccount(options.userId, { address: options.address, transaction: options.transaction }, undefined, options.idempotencyKey);
++        return CdpOpenApiClient.signSolanaTransactionWithEndUserAccount(options.userId, { address: options.address, transaction: options.transaction }, options.projectId ? { projectID: options.projectId } : undefined, options.idempotencyKey);
+     }
+     // ─── Delegated Solana Send Methods ───
+     /**
+diff --git a/_types/client/end-user/endUser.types.d.ts b/_types/client/end-user/endUser.types.d.ts
+--- a/_types/client/end-user/endUser.types.d.ts
++++ b/_types/client/end-user/endUser.types.d.ts
+@@ -118,6 +118,8 @@ export interface GetDelegationForEndUserOptions {
+      * The unique identifier of the end user.
+      */
+     userId: string;
++    /** CDP project ID. Required for end users authenticated with a custom identity provider. */
++    projectId?: string;
+ }
+ /**
+  * The result of getting the active delegation for an end user.
+@@ -218,6 +220,8 @@ export interface SignEvmTypedDataOptions {
+     typedData: EIP712Message;
+     /** Optional idempotency key for safe retries. */
+     idempotencyKey?: string;
++    /** CDP project ID. Required for end users authenticated with a custom identity provider. */
++    projectId?: string;
+ }
+ /**
+  * The result of signing EVM typed data on behalf of an end user.
+@@ -346,6 +350,8 @@ export interface SignSolanaTransactionOptions {
+     transaction: string;
+     /** Optional idempotency key for safe retries. */
+     idempotencyKey?: string;
++    /** CDP project ID. Required for end users authenticated with a custom identity provider. */
++    projectId?: string;
+ }
+ /**
+  * The result of signing a Solana transaction on behalf of an end user.
+diff --git a/src/client/end-user/endUser.ts b/src/client/end-user/endUser.ts
+--- a/src/client/end-user/endUser.ts
++++ b/src/client/end-user/endUser.ts
+@@ -291,9 +291,12 @@ export class EndUserClient {
+       action: "get_delegation_for_end_user",
+     });
+ 
+-    const { userId } = options;
++    const { userId, projectId } = options;
+ 
+-    return CdpOpenApiClient.getDelegationForEndUser(userId);
++    return CdpOpenApiClient.getDelegationForEndUser(
++      userId,
++      projectId ? { projectID: projectId } : undefined,
++    );
+   }
+ 
+   /**
+@@ -466,7 +469,7 @@ export class EndUserClient {
+     return CdpOpenApiClient.signEvmTypedDataWithEndUserAccount(
+       options.userId,
+       { address: options.address, typedData: options.typedData },
+-      undefined,
++      options.projectId ? { projectID: options.projectId } : undefined,
+       options.idempotencyKey,
+     );
+   }
+@@ -669,7 +672,7 @@ export class EndUserClient {
+     return CdpOpenApiClient.signSolanaTransactionWithEndUserAccount(
+       options.userId,
+       { address: options.address, transaction: options.transaction },
+-      undefined,
++      options.projectId ? { projectID: options.projectId } : undefined,
+       options.idempotencyKey,
+     );
+   }
+diff --git a/src/client/end-user/endUser.types.ts b/src/client/end-user/endUser.types.ts
+--- a/src/client/end-user/endUser.types.ts
++++ b/src/client/end-user/endUser.types.ts
+@@ -160,6 +160,8 @@ export interface GetDelegationForEndUserOptions {
+    * The unique identifier of the end user.
+    */
+   userId: string;
++  /** CDP project ID. Required for end users authenticated with a custom identity provider. */
++  projectId?: string;
+ }
+ 
+ /**
+@@ -278,6 +280,8 @@ export interface SignEvmTypedDataOptions {
+   typedData: EIP712Message;
+   /** Optional idempotency key for safe retries. */
+   idempotencyKey?: string;
++  /** CDP project ID. Required for end users authenticated with a custom identity provider. */
++  projectId?: string;
+ }
+ 
+ /**
+@@ -423,6 +427,8 @@ export interface SignSolanaTransactionOptions {
+   transaction: string;
+   /** Optional idempotency key for safe retries. */
+   idempotencyKey?: string;
++  /** CDP project ID. Required for end users authenticated with a custom identity provider. */
++  projectId?: string;
+ }
+ 
+ /**

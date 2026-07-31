@@ -205,7 +205,7 @@ export async function updateWallet(
     accounts: Array<{
       family: WalletAccount['family']
       address: string
-      delegationExpiresAt: string
+      delegationExpiresAt: string | null
     }>
   },
 ) {
