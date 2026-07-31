@@ -7,7 +7,7 @@ import { delegationNeedsRenewal } from '../lib/format'
 import { PageError } from './DashboardPage'
 import { Copy, Droplets, ExternalLink, KeyRound, Pause, Play, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { blockExplorerAddressUrl, networkName } from '../environment'
+import { blockExplorerAddressUrl, selectedNetwork } from '../environment'
 import { ProvisionWallet } from '../cdp'
 
 export function SettingsPage({ config }: { config: PublicConfig }) {
@@ -15,6 +15,10 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
   const [copied, setCopied] = useState(false)
   const overview = dashboard.overview.data
   const user = overview?.user
+  const account = overview?.runtime.account
+  const evmAccount = user?.accounts.find((candidate) => candidate.family === 'evm')
+  const solanaAccount = user?.accounts.find((candidate) => candidate.family === 'solana')
+  const network = selectedNetwork(config)
   const error = dashboard.overview.error ?? dashboard.action.error
 
   async function copyAddress(address: string) {
@@ -37,42 +41,86 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
       <PageError error={error} />
       {overview ? (
         <div className="settings-grid">
-          <SettingsCard icon={<WalletCards size={19} />} title="Wallet">
+          <SettingsCard icon={<WalletCards size={19} />} title="Selected network">
             <SettingsRow label="Environment" value={config.environment === 'sandbox' ? 'Sandbox' : 'Production'} />
-            <SettingsRow label="Network" value={networkName(config.network)} />
+            <SettingsRow label="Network" value={network.name} />
+            <SettingsRow label="Account family" value={network.family === 'evm' ? 'EVM' : 'Solana'} />
             <SettingsRow
               label="Address"
-              value={user?.walletAddress ?? 'Not provisioned'}
-              actions={user?.walletAddress ? (
+              value={account?.address ?? 'Not provisioned'}
+              actions={account?.address ? (
                 <>
-                  <button className="icon-button" onClick={() => void copyAddress(user.walletAddress!)} aria-label="Copy address">
+                  <button className="icon-button" onClick={() => void copyAddress(account.address)} aria-label="Copy address">
                     {copied ? <ShieldCheck size={17} /> : <Copy size={17} />}
                   </button>
-                  {blockExplorerAddressUrl(config.network, user.walletAddress) ? (
-                    <a className="icon-button" href={blockExplorerAddressUrl(config.network, user.walletAddress)!} target="_blank" rel="noreferrer" aria-label="View wallet on BaseScan">
+                  {blockExplorerAddressUrl(network.id, account.address) ? (
+                    <a className="icon-button" href={blockExplorerAddressUrl(network.id, account.address)!} target="_blank" rel="noreferrer" aria-label="View wallet in the block explorer">
                       <ExternalLink size={17} />
                     </a>
                   ) : null}
                 </>
               ) : undefined}
             />
-            {!user?.walletAddress ? (
-              config.cdpProjectId
-                ? <ProvisionWallet config={config} onComplete={dashboard.reload} />
-                : <p className="settings-help">Configure CDP to provision this wallet.</p>
+            <p className="settings-help">
+              {accountFamilyDescription(config, network.family)}
+            </p>
+            {!account?.address ? (
+              <p className="settings-help">
+                Set up the {network.family === 'evm' ? 'EVM' : 'Solana'} account under Wallet accounts.
+              </p>
+            ) : null}
+          </SettingsCard>
+
+          <SettingsCard icon={<WalletCards size={19} />} title="Wallet accounts">
+            <p className="settings-help">
+              Account families are global and do not change with the Network view selector.
+            </p>
+            <SettingsRow
+              label="EVM"
+              value={evmAccount?.address ?? 'Not set up'}
+              mono={Boolean(evmAccount)}
+              actions={!evmAccount && config.cdpProjectId ? (
+                <ProvisionWallet
+                  config={config}
+                  family="evm"
+                  onComplete={dashboard.reload}
+                />
+              ) : undefined}
+            />
+            <SettingsRow
+              label="Solana"
+              value={solanaAccount?.address ?? 'Not set up'}
+              mono={Boolean(solanaAccount)}
+              actions={!solanaAccount && config.cdpProjectId ? (
+                <ProvisionWallet
+                  config={config}
+                  family="solana"
+                  onComplete={dashboard.reload}
+                />
+              ) : undefined}
+            />
+            {!config.cdpProjectId ? (
+              <p className="settings-help">Configure CDP to provision wallet accounts.</p>
             ) : null}
           </SettingsCard>
 
           <SettingsCard icon={<KeyRound size={19} />} title="Signing delegation">
             <SettingsRow
               label="Status"
-              value={user?.delegationExpiresAt
-                ? `Active until ${new Date(user.delegationExpiresAt).toLocaleString()}`
+              value={account?.delegationExpiresAt
+                ? `Active until ${new Date(account.delegationExpiresAt).toLocaleString()}`
                 : 'Inactive'}
             />
-            {user?.walletAddress && delegationNeedsRenewal(user.delegationExpiresAt) ? (
+            {account?.address && delegationNeedsRenewal(account.delegationExpiresAt) ? (
               config.cdpProjectId
-                ? <ProvisionWallet config={config} onComplete={dashboard.reload} renewal />
+                ? (
+                    <ProvisionWallet
+                      config={config}
+                      family={network.family}
+                      onComplete={dashboard.reload}
+                      renewal
+                    />
+                  )
                 : <p className="settings-help error">CDP must be configured to renew signing permission.</p>
             ) : null}
           </SettingsCard>
@@ -85,19 +133,28 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
 
           {config.environment === 'sandbox' ? (
             <SettingsCard icon={<Droplets size={19} />} title="Testnet funding">
-              <p className="settings-help">Request test assets for Base Sepolia development and x402 validation.</p>
-              <div className="settings-actions">
-                {(['usdc', 'eth'] as const).map((token) => (
-                  <button
-                    className="secondary-button"
-                    disabled={!overview.runtime.faucetAvailable || !user?.walletAddress || dashboard.busy(`faucet-${token}`)}
-                    key={token}
-                    onClick={() => void dashboard.run(`faucet-${token}`, () => requestFaucet(config, { token }))}
-                  >
-                    <Droplets size={16} /> Get test {token.toUpperCase()}
-                  </button>
-                ))}
-              </div>
+              <p className="settings-help">
+                {overview.runtime.faucetAssets.length > 0
+                  ? `Request ${network.name} test assets for x402 validation.`
+                  : `${network.name} is not available from the CDP faucet. Fund this account from an external testnet faucet.`}
+              </p>
+              {overview.runtime.faucetAssets.length > 0 ? (
+                <div className="settings-actions">
+                  {overview.runtime.faucetAssets.map((asset) => (
+                    <button
+                      className="secondary-button"
+                      disabled={!account?.address || dashboard.busy(`faucet-${asset}`)}
+                      key={asset}
+                      onClick={() => void dashboard.run(
+                        `faucet-${asset}`,
+                        () => requestFaucet(config, { network: network.id, asset }),
+                      )}
+                    >
+                      <Droplets size={16} /> Get test {asset === 'native' ? network.nativeSymbol : 'USDC'}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </SettingsCard>
           ) : null}
 
@@ -107,7 +164,7 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
             </p>
             <button
               className={user?.pausedAt ? 'primary-button' : 'danger-button'}
-              disabled={!user?.walletAddress || dashboard.busy('wallet-state')}
+              disabled={user?.accounts.length === 0 || dashboard.busy('wallet-state')}
               onClick={() =>
                 void dashboard.run('wallet-state', () =>
                   actOnWallet(config, { action: user?.pausedAt ? 'resume' : 'pause' }),
@@ -122,6 +179,25 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
       ) : null}
     </ConsoleLayout>
   )
+}
+
+function accountFamilyDescription(
+  config: PublicConfig,
+  family: 'evm' | 'solana',
+) {
+  const networks = config.networks
+    .filter((network) => network.family === family)
+    .map((network) => network.name)
+  if (family === 'solana') {
+    return `This Solana account is used for ${networks.join(' and ')} and remains separate from the EVM account.`
+  }
+  return `The same EVM address is shared by ${formatList(networks)}. Balances and activity remain network-specific.`
+}
+
+function formatList(values: string[]) {
+  if (values.length <= 1) return values[0] ?? 'this network'
+  if (values.length === 2) return values.join(' and ')
+  return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`
 }
 
 function SettingsCard({

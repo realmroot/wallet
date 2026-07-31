@@ -1,7 +1,9 @@
 import { env, SELF } from 'cloudflare:test'
+import type { PaymentRequired } from '../shared/contracts'
 import { cleanupExpiredReservations } from '../server/repository'
 import { hasMatchingDeveloperJwtIdentity, walletAsset } from '../server/cdp'
-import { hasMatchingUsdcTransfer } from '../server/settlement'
+import { hasMatchingSolanaTransfer, hasMatchingUsdcTransfer } from '../server/settlement'
+import { walletNetworkDefinition, walletNetworks } from '../server/network'
 import { withExplicitEip712Domain } from '../server/signer'
 import { buildAgentWallet } from '../server/agent-wallet'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
@@ -122,20 +124,64 @@ describe('Agent Wallet', () => {
     expect(hasMatchingUsdcTransfer([log], { ...payment, amount: '25001' })).toBe(false)
   })
 
+  it('matches a confirmed Solana USDC balance transfer', () => {
+    const payer = '7YttLkHDoGfW4jz1F8JvM5KQbQfRYW3uBVJcQe6pRX8F'
+    const payTo = '9aZQ3xgH7SxKpwT4krGjQJY4B9u4Ah7d7yJxLwFxS5JH'
+    const mint = walletNetworkDefinition(
+      'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+    ).asset.address
+    const transaction = {
+      meta: {
+        err: null,
+        preTokenBalances: [
+          { accountIndex: 1, mint, owner: payer, uiTokenAmount: { amount: '100000' } },
+          { accountIndex: 2, mint, owner: payTo, uiTokenAmount: { amount: '1000' } },
+        ],
+        postTokenBalances: [
+          { accountIndex: 1, mint, owner: payer, uiTokenAmount: { amount: '75000' } },
+          { accountIndex: 2, mint, owner: payTo, uiTokenAmount: { amount: '26000' } },
+        ],
+      },
+    }
+    const payment = {
+      asset: mint,
+      amount: '25000',
+      pay_to: payTo,
+      wallet_address: payer,
+    }
+    expect(hasMatchingSolanaTransfer(transaction, payment)).toBe(true)
+    expect(hasMatchingSolanaTransfer(transaction, { ...payment, amount: '25001' })).toBe(false)
+  })
+
+  it('registers every configured Sandbox network with canonical USDC', () => {
+    expect(walletNetworks(env).map((network) => network.id)).toEqual([
+      'eip155:84532',
+      'eip155:4801',
+      'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+    ])
+    expect(walletNetworkDefinition('eip155:4801').asset.address).toBe(
+      '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88',
+    )
+    expect(
+      walletNetworkDefinition('solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1').asset.address,
+    ).toBe('4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU')
+  })
+
   it('calculates the maximum amount the current Agent can pay', () => {
     const wallet = buildAgentWallet(
-      {
-        WALLET_NETWORK: 'eip155:84532',
-        PAYMENTS_ENABLED: 'true',
-      } as Env,
+      env,
       {
         id: 'user-1',
         issuer: humanIssuer,
         subject: ownerSubject,
         email: null,
         cdpUserId: 'cdp-user-1',
-        walletAddress,
-        delegationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        accounts: [{
+          id: crypto.randomUUID(),
+          family: 'evm',
+          address: walletAddress,
+          delegationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        }],
         pausedAt: null,
       },
       {
@@ -155,21 +201,29 @@ describe('Agent Wallet', () => {
         pausedAt: null,
         revokedAt: null,
       },
-      {
+      [{
+        network: 'eip155:84532',
+        family: 'evm',
+        account: {
+          id: crypto.randomUUID(),
+          family: 'evm',
+          address: walletAddress,
+          delegationExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+        },
         balances: [
           {
             symbol: 'USDC',
             amount: '30000',
             decimals: 6,
-            contractAddress: getDefaultAsset('eip155:84532').address,
+            assetAddress: getDefaultAsset('eip155:84532').address,
           },
         ],
         balanceStatus: 'available',
-        faucetAvailable: false,
-      },
+        faucetAssets: [],
+      }],
     )
 
-    expect(wallet.payment).toEqual({
+    expect(wallet.networks[0]?.payment).toEqual({
       ready: true,
       maximumAmount: '25000',
       blockers: [],
@@ -179,10 +233,10 @@ describe('Agent Wallet', () => {
   })
 
   it('uses the canonical USDC asset for Base Mainnet and Base Sepolia', () => {
-    expect(walletAsset({ WALLET_NETWORK: 'eip155:8453' } as Env).address).toBe(
+    expect(walletAsset('eip155:8453').address).toBe(
       '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
     )
-    expect(walletAsset({ WALLET_NETWORK: 'eip155:84532' } as Env).address).toBe(
+    expect(walletAsset('eip155:84532').address).toBe(
       '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
     )
   })
@@ -201,8 +255,15 @@ describe('Agent Wallet', () => {
       servers: [{ url: '.' }],
       'x-wallet-environment': {
         name: 'production',
-        network: 'eip155:84532',
-        paymentsEnabled: true,
+        defaultNetwork: 'eip155:84532',
+        networks: expect.arrayContaining([
+          expect.objectContaining({ id: 'eip155:84532', paymentsEnabled: true }),
+          expect.objectContaining({ id: 'eip155:4801', paymentsEnabled: true }),
+          expect.objectContaining({
+            id: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+            paymentsEnabled: true,
+          }),
+        ]),
       },
       components: {
         securitySchemes: {
@@ -346,8 +407,10 @@ describe('Agent Wallet', () => {
       appBaseUrl: 'https://wallet.test/sandbox',
       audience: 'https://wallet.test/api/sandbox',
       environment: 'sandbox',
-      network: 'eip155:84532',
-      paymentsEnabled: true,
+      defaultNetwork: 'eip155:84532',
+      networks: expect.arrayContaining([
+        expect.objectContaining({ id: 'eip155:84532', paymentsEnabled: true }),
+      ]),
     })
 
     const root = await SELF.fetch('https://wallet.test/api/sandbox')
@@ -360,8 +423,10 @@ describe('Agent Wallet', () => {
       servers: [{ url: '.' }],
       'x-wallet-environment': {
         name: 'sandbox',
-        network: 'eip155:84532',
-        paymentsEnabled: true,
+        defaultNetwork: 'eip155:84532',
+        networks: expect.arrayContaining([
+          expect.objectContaining({ id: 'eip155:84532', paymentsEnabled: true }),
+        ]),
       },
     })
 
@@ -388,7 +453,9 @@ describe('Agent Wallet', () => {
 
     expect(response.status, await response.clone().text()).toBe(200)
     expect(await response.json()).toMatchObject({
-      network: 'eip155:84532',
+      networks: expect.arrayContaining([
+        expect.objectContaining({ network: 'eip155:84532' }),
+      ]),
     })
   })
 
@@ -406,10 +473,6 @@ describe('Agent Wallet', () => {
     expect(response.status, await response.clone().text()).toBe(200)
     const status = await response.json()
     expect(status).toMatchObject({
-      network: 'eip155:84532',
-      delegation: {
-        status: 'active',
-      },
       budget: {
         name: 'Local Codex',
         limits: {
@@ -421,6 +484,13 @@ describe('Agent Wallet', () => {
           },
         },
       },
+    })
+    expect(
+      (status as { networks: Array<{ network: string }> }).networks.find(
+        (network) => network.network === 'eip155:84532',
+      ),
+    ).toMatchObject({
+      delegation: { status: 'active' },
       payment: {
         ready: false,
         maximumAmount: '0',
@@ -543,7 +613,7 @@ describe('Agent Wallet', () => {
       headers: jsonHeaders(`Bearer ${token}`),
       body: JSON.stringify({
         cdpUserId: 'cdp-user-1',
-        address: walletAddress,
+        accounts: [{ family: 'evm', address: walletAddress }],
       }),
     })
     expect(provision.status).toBe(204)
@@ -621,6 +691,35 @@ describe('Agent Wallet', () => {
     }>()
     expect(state.grants[0]?.spentTotal).toBe('25000')
     expect(state.payments[0]?.status).toBe('signed')
+  })
+
+  it('charges Base and World payments against one cross-chain budget', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(200)
+    expect(
+      (
+        await pay(
+          agentToken,
+          paymentRequiredForNetwork('30000', 'eip155:4801'),
+        )
+      ).status,
+    ).toBe(200)
+
+    const overview = await SELF.fetch('https://wallet.test/api/overview', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    const state = await overview.json<{
+      grants: Array<{ spentTotal: string }>
+      payments: Array<{ network: string }>
+    }>()
+    expect(state.grants[0]?.spentTotal).toBe('55000')
+    expect(state.payments.map((payment) => payment.network)).toEqual([
+      'eip155:4801',
+      'eip155:84532',
+    ])
   })
 
   it('rejects duplicate requirements and payments above the Agent transaction limit', async () => {
@@ -1121,7 +1220,7 @@ async function dpopProof(accessToken: string, url = walletUrl, method = 'POST') 
 
 async function pay(
   agentToken: string,
-  requirement: ReturnType<typeof paymentRequired>,
+  requirement: PaymentRequired,
   idempotencyKey = crypto.randomUUID(),
 ) {
   return SELF.fetch(walletUrl, {
@@ -1140,9 +1239,9 @@ async function provisionAndGrant(token: string) {
   const provision = await SELF.fetch('https://wallet.test/api/wallet', {
     method: 'PUT',
     headers: jsonHeaders(`Bearer ${token}`),
-    body: JSON.stringify({
-      cdpUserId: 'cdp-user-1',
-      address: walletAddress,
+      body: JSON.stringify({
+        cdpUserId: 'cdp-user-1',
+        accounts: [{ family: 'evm', address: walletAddress }],
     }),
   })
   expect(provision.status, await provision.clone().text()).toBe(204)
@@ -1226,6 +1325,27 @@ function paymentRequired(amount: string) {
         },
       },
     ],
+  }
+}
+
+function paymentRequiredForNetwork(amount: string, network: 'eip155:4801') {
+  const asset = walletNetworkDefinition(network).asset
+  return {
+    x402Version: 2,
+    resource: {
+      url: 'https://merchant.test/weather',
+      description: 'Paid test weather',
+      mimeType: 'application/json',
+    },
+    accepts: [{
+      scheme: 'exact',
+      network,
+      asset: asset.address,
+      amount,
+      payTo: '0x0000000000000000000000000000000000000001',
+      maxTimeoutSeconds: 300,
+      extra: { name: 'USD Coin', version: '2' },
+    }],
   }
 }
 

@@ -41,7 +41,10 @@ export const policyFormSchema = z
       }
     }
     for (const recipient of splitLines(value.allowedRecipients)) {
-      if (!/^0x[0-9a-fA-F]{40}$/.test(recipient)) {
+      if (
+        !/^0x[0-9a-fA-F]{40}$/.test(recipient) &&
+        !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(recipient)
+      ) {
         context.addIssue({
           code: 'custom',
           path: ['allowedRecipients'],
@@ -117,7 +120,7 @@ export function PolicyFields({
         <textarea
           {...register('allowedRecipients')}
           rows={3}
-          placeholder={'0x…\nLeave empty to allow any recipient'}
+          placeholder={'0x… or Solana address\nLeave empty to allow any recipient'}
           aria-invalid={Boolean(errors.allowedRecipients)}
         />
       </Field>

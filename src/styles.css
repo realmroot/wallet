@@ -280,13 +280,24 @@ code { color: #92a3ba; font-size: .76rem; word-break: break-all; }
   background: var(--surface-strong);
   box-shadow: 0 1px 4px rgba(0, 0, 0, .2);
 }
+.sidebar-network-context {
+  display: grid;
+  gap: 6px;
+  margin: 12px 8px 18px;
+}
+.sidebar-context-label {
+  color: var(--text-subtle);
+  font-size: .6rem;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 .sidebar-network {
   display: inline-flex;
   width: fit-content;
   min-height: 30px;
   align-items: center;
   gap: 7px;
-  margin: 12px 8px 18px;
   padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: 999px;
@@ -295,6 +306,7 @@ code { color: #92a3ba; font-size: .76rem; word-break: break-all; }
   font-size: .68rem;
 }
 .sidebar-network span { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px rgba(87, 230, 165, .6); }
+.sidebar-network select { max-width: 158px; border: 0; outline: 0; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .sidebar-nav { display: grid; gap: 5px; }
 .nav-item {
   width: 100%;
@@ -609,6 +621,8 @@ code { color: #92a3ba; font-size: .76rem; word-break: break-all; }
 .dialog h2 { margin-bottom: 8px; font-size: 1.55rem; }
 .dialog-close { position: absolute; top: 18px; right: 18px; width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; color: var(--text-muted); background: transparent; }
 .dialog-close:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+.account-dialog > p { margin: 8px 0 0; color: var(--text-muted); font-size: .8rem; line-height: 1.6; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); }
 
 /* Settings */
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }

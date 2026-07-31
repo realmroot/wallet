@@ -4,9 +4,14 @@ const atomicAmount = z
   .string()
   .regex(/^[1-9]\d{0,14}$/)
   .openapi({ description: 'Atomic USDC amount.', example: '25000' })
-const evmAddress = z
+const usedAtomicAmount = z
   .string()
-  .regex(/^0x[0-9a-fA-F]{40}$/)
+  .regex(/^\d{1,15}$/)
+  .openapi({ description: 'Atomic USDC amount, including zero.', example: '25000' })
+const evmAddress = z.string().regex(/^0x[0-9a-fA-F]{40}$/)
+const solanaAddress = z.string().regex(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/)
+const walletAddress = z
+  .union([evmAddress, solanaAddress])
   .openapi({ example: '0x0000000000000000000000000000000000000001' })
 const merchantOrigin = z
   .url()
@@ -15,14 +20,21 @@ const merchantOrigin = z
 const resourceId = z
   .uuid()
   .openapi({ description: 'Stable resource identifier.', example: '019c12e0-f8e0-7b71-87fd-43a523f07bd4' })
-const usedAtomicAmount = z
-  .string()
-  .regex(/^\d{1,15}$/)
-  .openapi({ description: 'Atomic USDC amount, including zero.', example: '25000' })
 const networkId = z
   .string()
   .regex(/^[a-z0-9]+:[A-Za-z0-9._-]+$/)
   .openapi({ description: 'CAIP-2 network identifier.', example: 'eip155:84532' })
+const accountFamily = z.enum(['evm', 'solana'])
+
+const paymentOptionSchema = z.object({
+  scheme: z.string(),
+  network: networkId.transform((value) => value as `${string}:${string}`),
+  asset: walletAddress,
+  amount: atomicAmount,
+  payTo: walletAddress,
+  maxTimeoutSeconds: z.number().int().positive(),
+  extra: z.record(z.string(), z.unknown()),
+})
 
 export const paymentRequiredSchema = z
   .object({
@@ -32,36 +44,17 @@ export const paymentRequiredSchema = z
       description: z.string().optional(),
       mimeType: z.string().optional(),
     }),
-    accepts: z
-      .array(
-        z.object({
-          scheme: z.string(),
-          network: z
-            .string()
-            .regex(/^[a-z0-9]+:[A-Za-z0-9._-]+$/)
-            .transform((value) => value as `${string}:${string}`),
-          asset: z.string(),
-          amount: atomicAmount,
-          payTo: evmAddress,
-          maxTimeoutSeconds: z.number().int().positive(),
-          extra: z.record(z.string(), z.unknown()),
-        }),
-      )
-      .min(1),
+    accepts: z.array(paymentOptionSchema).min(1),
     extensions: z.record(z.string(), z.unknown()).optional(),
   })
   .openapi('PaymentRequired')
 
 export const createBudgetRequestSchema = z
-  .object({
-    name: z.string().trim().min(1).max(100).optional(),
-  })
+  .object({ name: z.string().trim().min(1).max(100).optional() })
   .openapi('CreateBudgetRequest')
 
 export const inspectBudgetRequestSchema = z
-  .object({
-    approvalToken: z.string().min(32).max(255),
-  })
+  .object({ approvalToken: z.string().min(32).max(255) })
   .openapi('InspectBudgetRequest')
 
 const budgetPolicy = z
@@ -72,7 +65,7 @@ const budgetPolicy = z
     periodKind: z.enum(['none', 'daily', 'monthly']),
     periodLimit: atomicAmount.nullable(),
     allowedOrigins: z.array(merchantOrigin).max(20).default([]),
-    allowedRecipients: z.array(evmAddress).max(20).default([]),
+    allowedRecipients: z.array(walletAddress).max(20).default([]),
     expiresAt: z.iso.datetime().nullable(),
   })
   .openapi('BudgetPolicy')
@@ -90,11 +83,20 @@ export const budgetDecisionSchema = z
   ])
   .openapi('BudgetDecision')
 
+const walletAccountInputSchema = z.object({
+  family: accountFamily,
+  address: walletAddress,
+})
+
 export const updateWalletSchema = z
   .object({
     cdpUserId: z.string().trim().min(1).max(100),
-    address: evmAddress,
+    accounts: z.array(walletAccountInputSchema).min(1).max(2),
   })
+  .refine(
+    ({ accounts }) => new Set(accounts.map((account) => account.family)).size === accounts.length,
+    'Only one account per family can be registered.',
+  )
   .openapi('UpdateWallet')
 
 export type PaymentRequired = z.infer<typeof paymentRequiredSchema>
@@ -106,21 +108,12 @@ export type BudgetRequestStatus = z.infer<typeof budgetRequestStatusSchema>
 
 export const budgetRequestStateSchema = z
   .object({
-    requestId: resourceId
-      .nullable()
-      .openapi({ description: 'Budget request identifier, or null when an active budget already exists.' }),
-    budgetId: resourceId
-      .nullable()
-      .openapi({ description: 'Approved budget identifier, or null while no budget has been approved.' }),
+    requestId: resourceId.nullable(),
+    budgetId: resourceId.nullable(),
     status: budgetRequestStatusSchema,
     expiresAt: z.iso.datetime(),
     approvalUrl: z.url().optional(),
-    pollIntervalSeconds: z
-      .number()
-      .int()
-      .positive()
-      .openapi({ description: 'Recommended polling interval in seconds.', example: 3 })
-      .optional(),
+    pollIntervalSeconds: z.number().int().positive().optional(),
   })
   .openapi('BudgetRequest')
 export type BudgetRequestState = z.infer<typeof budgetRequestStateSchema>
@@ -141,6 +134,16 @@ export const budgetDecisionResultSchema = z
   })
   .openapi('BudgetDecisionResult')
 
+export const walletAccountSchema = z
+  .object({
+    id: resourceId,
+    family: accountFamily,
+    address: walletAddress,
+    delegationExpiresAt: z.iso.datetime().nullable(),
+  })
+  .openapi('WalletAccount')
+export type WalletAccount = z.infer<typeof walletAccountSchema>
+
 export const walletUserSchema = z
   .object({
     id: z.string(),
@@ -148,8 +151,7 @@ export const walletUserSchema = z
     subject: z.string(),
     email: z.string().nullable(),
     cdpUserId: z.string().nullable(),
-    walletAddress: evmAddress.nullable(),
-    delegationExpiresAt: z.iso.datetime().nullable(),
+    accounts: z.array(walletAccountSchema),
     pausedAt: z.iso.datetime().nullable(),
   })
   .openapi('WalletUser')
@@ -162,13 +164,13 @@ export const agentGrantSchema = z
     agentSubject: z.string(),
     name: z.string(),
     totalLimit: atomicAmount,
-    spentTotal: z.string().regex(/^\d{1,15}$/),
+    spentTotal: usedAtomicAmount,
     perTransactionLimit: atomicAmount,
     periodKind: z.enum(['none', 'daily', 'monthly']),
     periodLimit: atomicAmount.nullable(),
-    periodSpent: z.string().regex(/^\d{1,15}$/),
+    periodSpent: usedAtomicAmount,
     allowedOrigins: z.array(merchantOrigin),
-    allowedRecipients: z.array(evmAddress),
+    allowedRecipients: z.array(walletAddress),
     expiresAt: z.iso.datetime().nullable(),
     pausedAt: z.iso.datetime().nullable(),
     revokedAt: z.iso.datetime().nullable(),
@@ -191,53 +193,54 @@ export const agentWalletBlockerSchema = z.enum([
 ])
 export type AgentWalletBlocker = z.infer<typeof agentWalletBlockerSchema>
 
+const agentBudgetSchema = z.object({
+  id: resourceId,
+  name: z.string(),
+  status: z.enum(['active', 'paused', 'expired']),
+  limits: z.object({
+    total: atomicAmount,
+    perPayment: atomicAmount,
+    period: z.object({
+      kind: z.enum(['none', 'daily', 'monthly']),
+      amount: atomicAmount.nullable(),
+    }),
+  }),
+  usage: z.object({ total: usedAtomicAmount, period: usedAtomicAmount }),
+  remaining: z.object({ total: usedAtomicAmount, period: usedAtomicAmount.nullable() }),
+  restrictions: z.object({
+    merchantOrigins: z.array(merchantOrigin),
+    recipients: z.array(walletAddress),
+  }),
+  expiresAt: z.iso.datetime().nullable(),
+})
+
+export const agentWalletNetworkSchema = z.object({
+  network: networkId,
+  name: z.string(),
+  family: accountFamily,
+  paymentsEnabled: z.boolean(),
+  account: walletAccountSchema.nullable(),
+  asset: z.object({
+    symbol: z.literal('USDC'),
+    address: walletAddress,
+    decimals: z.literal(6),
+  }),
+  delegation: z.object({
+    status: z.enum(['active', 'inactive']),
+    expiresAt: z.iso.datetime().nullable(),
+  }),
+  payment: z.object({
+    ready: z.boolean(),
+    maximumAmount: usedAtomicAmount.nullable(),
+    blockers: z.array(agentWalletBlockerSchema),
+  }),
+})
+export type AgentWalletNetwork = z.infer<typeof agentWalletNetworkSchema>
+
 export const agentWalletSchema = z
   .object({
-    network: networkId,
-    asset: z.object({
-      symbol: z.string().openapi({ example: 'USDC' }),
-      contractAddress: evmAddress,
-      decimals: z.number().int().nonnegative().openapi({ example: 6 }),
-    }),
-    delegation: z.object({
-      status: z.enum(['active', 'inactive']),
-      expiresAt: z.iso.datetime().nullable(),
-    }),
-    budget: z
-      .object({
-        id: resourceId,
-        name: z.string().openapi({ example: 'Build Agent' }),
-        status: z.enum(['active', 'paused', 'expired']),
-        limits: z.object({
-          total: atomicAmount,
-          perPayment: atomicAmount,
-          period: z.object({
-            kind: z.enum(['none', 'daily', 'monthly']),
-            amount: atomicAmount.nullable(),
-          }),
-        }),
-        usage: z.object({
-          total: usedAtomicAmount,
-          period: usedAtomicAmount,
-        }),
-        remaining: z.object({
-          total: usedAtomicAmount,
-          period: usedAtomicAmount.nullable(),
-        }),
-        restrictions: z.object({
-          merchantOrigins: z.array(merchantOrigin),
-          recipients: z.array(evmAddress),
-        }),
-        expiresAt: z.iso.datetime().nullable(),
-      })
-      .nullable(),
-    payment: z.object({
-      ready: z.boolean(),
-      maximumAmount: usedAtomicAmount
-        .nullable()
-        .openapi({ description: 'Maximum currently payable atomic USDC amount, or null when unavailable.' }),
-      blockers: z.array(agentWalletBlockerSchema),
-    }),
+    budget: agentBudgetSchema.nullable(),
+    networks: z.array(agentWalletNetworkSchema),
   })
   .openapi('AgentWallet')
 export type AgentWallet = z.infer<typeof agentWalletSchema>
@@ -245,23 +248,18 @@ export type AgentWallet = z.infer<typeof agentWalletSchema>
 export const updateGrantSchema = budgetPolicy.openapi('UpdateGrant')
 export type UpdateGrantInput = z.infer<typeof updateGrantSchema>
 
-export const grantActionSchema = z
-  .object({
-    action: z.enum(['pause', 'resume']),
-  })
-  .openapi('GrantAction')
+export const grantActionSchema = z.object({ action: z.enum(['pause', 'resume']) }).openapi('GrantAction')
 export type GrantActionInput = z.infer<typeof grantActionSchema>
 
-export const walletActionSchema = z.object({
-  action: z.enum(['pause', 'resume']),
-})
+export const walletActionSchema = z.object({ action: z.enum(['pause', 'resume']) })
 export type WalletActionInput = z.infer<typeof walletActionSchema>
 
 export const paymentSummarySchema = z
   .object({
     id: z.string(),
+    network: networkId,
     amount: atomicAmount,
-    payTo: evmAddress,
+    payTo: walletAddress,
     resource: z.url(),
     status: z.enum(['reserved', 'signed', 'settled', 'failed']),
     transactionHash: z.string().nullable(),
@@ -273,33 +271,34 @@ export const paymentSummarySchema = z
 export const walletBalanceSchema = z
   .object({
     symbol: z.string(),
-    amount: z.string().regex(/^\d+$/),
+    amount: usedAtomicAmount,
     decimals: z.number().int().nonnegative(),
-    contractAddress: evmAddress.nullable(),
+    assetAddress: walletAddress.nullable(),
   })
   .openapi('WalletBalance')
 
 export const walletRuntimeSchema = z
   .object({
+    network: networkId,
+    family: accountFamily,
+    account: walletAccountSchema.nullable(),
     balances: z.array(walletBalanceSchema),
     balanceStatus: z.enum(['available', 'unavailable']),
-    faucetAvailable: z.boolean(),
+    faucetAssets: z.array(z.enum(['usdc', 'native'])),
   })
   .openapi('WalletRuntime')
 export type WalletRuntime = z.infer<typeof walletRuntimeSchema>
 
-export const auditEventSchema = z
-  .object({
-    id: z.string(),
-    actorKind: z.enum(['human', 'agent', 'system']),
-    actorSubject: z.string(),
-    action: z.string(),
-    targetType: z.string(),
-    targetId: z.string(),
-    metadata: z.record(z.string(), z.unknown()).nullable(),
-    createdAt: z.iso.datetime(),
-  })
-  .openapi('AuditEvent')
+export const auditEventSchema = z.object({
+  id: z.string(),
+  actorKind: z.enum(['human', 'agent', 'system']),
+  actorSubject: z.string(),
+  action: z.string(),
+  targetType: z.string(),
+  targetId: z.string(),
+  metadata: z.record(z.string(), z.unknown()).nullable(),
+  createdAt: z.iso.datetime(),
+})
 
 export const walletOverviewSchema = z
   .object({
@@ -325,9 +324,9 @@ export const agentPaymentSchema = z
     paymentId: resourceId,
     status: z.enum(['reserved', 'signed', 'settled', 'failed']),
     network: networkId,
-    asset: evmAddress,
+    asset: walletAddress,
     amount: atomicAmount,
-    payTo: evmAddress,
+    payTo: walletAddress,
     resource: z.url(),
     transactionHash: z.string().nullable(),
     failureReason: z.string().nullable(),
@@ -344,9 +343,9 @@ export const settlementResponseSchema = z
     success: z.boolean(),
     errorReason: z.string().optional(),
     errorMessage: z.string().optional(),
-    payer: evmAddress.optional(),
+    payer: walletAddress.optional(),
     transaction: z.string().min(1),
-    network: z.string(),
+    network: networkId,
     amount: z.string().regex(/^\d+$/).optional(),
     extensions: z.record(z.string(), z.unknown()).optional(),
     extra: z.record(z.string(), z.unknown()).optional(),
@@ -354,26 +353,20 @@ export const settlementResponseSchema = z
   .openapi('SettlementResponse')
 export type SettlementResponse = z.infer<typeof settlementResponseSchema>
 
-export const settlementResultSchema = z
-  .object({
-    paymentId: resourceId,
-    status: z.enum(['signed', 'settled']),
-    transactionHash: z.string().nullable(),
-  })
-  .openapi('SettlementResult')
+export const settlementResultSchema = z.object({
+  paymentId: resourceId,
+  status: z.enum(['signed', 'settled']),
+  transactionHash: z.string().nullable(),
+})
 
 export const faucetRequestSchema = z.object({
-  token: z.enum(['usdc', 'eth']),
+  network: networkId,
+  asset: z.enum(['usdc', 'native']),
 })
 export type FaucetRequest = z.infer<typeof faucetRequestSchema>
 
-export const faucetResultSchema = z.object({
-  transactionHash: z.string(),
-})
+export const faucetResultSchema = z.object({ transactionHash: z.string() })
 
 export const apiErrorSchema = z
-  .object({
-    error: z.string(),
-    message: z.string(),
-  })
+  .object({ error: z.string(), message: z.string() })
   .openapi('ApiError')

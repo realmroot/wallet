@@ -1,6 +1,49 @@
 import { expect, test } from '@playwright/test'
 
 const walletAddress = '0x1111111111111111111111111111111111111111'
+const appOrigin = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:6230'
+const baseSepoliaNetwork = {
+  id: 'eip155:84532',
+  alias: 'base-sepolia',
+  name: 'Base Sepolia',
+  family: 'evm',
+  asset: {
+    symbol: 'USDC',
+    address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+    decimals: 6,
+  },
+  nativeSymbol: 'ETH',
+  explorerOrigin: 'https://sepolia.basescan.org',
+  paymentsEnabled: true,
+  faucetAssets: ['usdc', 'native'],
+}
+const worldSepoliaNetwork = {
+  ...baseSepoliaNetwork,
+  id: 'eip155:4801',
+  alias: 'world-sepolia',
+  name: 'World Sepolia',
+  asset: {
+    ...baseSepoliaNetwork.asset,
+    address: '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88',
+  },
+  explorerOrigin: 'https://sepolia.worldscan.org',
+  faucetAssets: [],
+}
+const solanaDevnetNetwork = {
+  id: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+  alias: 'solana-devnet',
+  name: 'Solana Devnet',
+  family: 'solana',
+  asset: {
+    symbol: 'USDC',
+    address: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU',
+    decimals: 6,
+  },
+  nativeSymbol: 'SOL',
+  explorerOrigin: 'https://explorer.solana.com',
+  paymentsEnabled: true,
+  faucetAssets: ['usdc', 'native'],
+}
 const grant = {
   id: 'grant-1',
   agentIssuer: 'https://fa.test/api/auth',
@@ -28,15 +71,15 @@ test.beforeEach(async ({ page }) => {
   await page.route('**/api/config', (route) =>
     route.fulfill({
       json: {
-        appOrigin: 'http://localhost:6230',
-        appBaseUrl: 'http://localhost:6230',
+        appOrigin,
+        appBaseUrl: appOrigin,
         oidcIssuer: 'https://fa.test/api/auth',
         clientId: 'agent-wallet-web',
-        audience: 'http://localhost:6230/api',
+        audience: `${appOrigin}/api`,
         agentIssuer: 'https://fa.test/api/auth',
         environment: 'production',
-        network: 'eip155:84532',
-        paymentsEnabled: true,
+        defaultNetwork: 'eip155:84532',
+        networks: [baseSepoliaNetwork, worldSepoliaNetwork],
         cdpProjectId: null,
       },
     }),
@@ -72,8 +115,12 @@ test.beforeEach(async ({ page }) => {
       body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>',
     }),
   )
-  await page.route('**/api/overview', (route) =>
-    route.fulfill({
+  await page.route('**/api/overview*', (route) => {
+    const network =
+      new URL(route.request().url()).searchParams.get('network') === worldSepoliaNetwork.id
+        ? worldSepoliaNetwork
+        : baseSepoliaNetwork
+    return route.fulfill({
       json: {
         user: {
           id: 'user-1',
@@ -81,14 +128,19 @@ test.beforeEach(async ({ page }) => {
           subject: 'user-1',
           email: 'owner@example.com',
           cdpUserId: 'cdp-user-1',
-          walletAddress,
-          delegationExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          accounts: [{
+            id: 'account-1',
+            family: 'evm',
+            address: walletAddress,
+            delegationExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          }],
           pausedAt: null,
         },
         grants: [grant],
         payments: [
           {
             id: 'payment-1',
+            network: 'eip155:84532',
             amount: '25000',
             payTo: '0x2222222222222222222222222222222222222222',
             resource: 'https://merchant.test/weather',
@@ -111,30 +163,38 @@ test.beforeEach(async ({ page }) => {
           },
         ],
         runtime: {
+          network: network.id,
+          family: 'evm',
+          account: {
+            id: 'account-1',
+            family: 'evm',
+            address: walletAddress,
+            delegationExpiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          },
           balances: [
             {
               symbol: 'USDC',
               amount: '12500000',
               decimals: 6,
-              contractAddress: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
+              assetAddress: network.asset.address,
             },
-            { symbol: 'ETH', amount: '10000000000000000', decimals: 18, contractAddress: null },
+            { symbol: 'ETH', amount: '10000000000000000', decimals: 18, assetAddress: null },
           ],
           balanceStatus: 'available',
-          faucetAvailable: true,
+          faucetAssets: network.faucetAssets,
         },
       },
-    }),
-  )
+    })
+  })
 })
 
 test('operates wallet balances, testnet funding, and Agent grants', async ({ page }) => {
-  let faucetToken = ''
+  let faucetAsset = ''
   let grantAction = ''
   let walletAction = ''
   let updatedGrant: Record<string, unknown> | null = null
   await page.route('**/api/wallet/faucet', async (route) => {
-    faucetToken = (await route.request().postDataJSON()).token
+    faucetAsset = (await route.request().postDataJSON()).asset
     await route.fulfill({ json: { transactionHash: `0x${'cd'.repeat(32)}` } })
   })
   await page.route('**/api/grants/grant-1/actions', async (route) => {
@@ -167,7 +227,7 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   )
 
   await page.getByRole('button', { name: 'Get test USDC' }).click()
-  await expect.poll(() => faucetToken).toBe('usdc')
+  await expect.poll(() => faucetAsset).toBe('usdc')
 
   await page.getByRole('button', { name: 'Pause all Agent payments' }).click()
   await expect.poll(() => walletAction).toBe('pause')
@@ -206,6 +266,9 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect(page).toHaveURL('/settings')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await expect(page.getByText('OIDC subject')).toBeVisible()
+  await expect(page.getByText(
+    'Account families are global and do not change with the Network view selector.',
+  )).toBeVisible()
 
   await page.getByRole('link', { name: 'Payments' }).click()
   await expect(page).toHaveURL('/payments')
@@ -217,35 +280,99 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   expect(await page.evaluate(() => sessionStorage.getItem('menu-transition-seen'))).toBeNull()
 })
 
-test('uses the configured network for BaseScan links', async ({ page }) => {
-  await page.unroute('**/api/config')
-  await page.route('**/api/config', (route) =>
-    route.fulfill({
-      json: {
-        appOrigin: 'http://localhost:6230',
-        appBaseUrl: 'http://localhost:6230',
-        oidcIssuer: 'https://fa.test/api/auth',
-        clientId: 'agent-wallet-web',
-        audience: 'http://localhost:6230/api',
-        agentIssuer: 'https://fa.test/api/auth',
-        environment: 'production',
-        network: 'eip155:8453',
-        paymentsEnabled: false,
-        cdpProjectId: null,
-      },
-    }),
-  )
-
+test('uses the selected network for block explorer links', async ({ page }) => {
   await page.goto('/')
 
-  await expect(page.getByRole('link', { name: 'View wallet on BaseScan' })).toHaveAttribute(
+  await expect(page.getByRole('link', { name: 'View wallet in the block explorer' })).toHaveAttribute(
     'href',
-    `https://basescan.org/address/${walletAddress}`,
+    `https://sepolia.basescan.org/address/${walletAddress}`,
   )
   await expect(page.getByRole('link', { name: 'Receipt' })).toHaveAttribute(
     'href',
-    `https://basescan.org/tx/0x${'ab'.repeat(32)}`,
+    `https://sepolia.basescan.org/tx/0x${'ab'.repeat(32)}`,
   )
+})
+
+test('keeps non-default network routes across internal navigation', async ({ page }) => {
+  await page.goto('/chains/world-sepolia')
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await expect(page.getByLabel('Network view')).toHaveValue('eip155:4801')
+  await expect(page.locator('#main-content').getByText('World Sepolia', { exact: true })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Activity' }).click()
+  await expect(page).toHaveURL('/chains/world-sepolia/activity')
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
+
+  await page.getByLabel('Network view').selectOption('eip155:84532')
+  await page.waitForURL('/activity')
+  await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
+})
+
+test('creates only the account family required by the selected network', async ({ page }) => {
+  const networks = [baseSepoliaNetwork, worldSepoliaNetwork, solanaDevnetNetwork]
+  await page.route('**/api/config', (route) =>
+    route.fulfill({
+      json: {
+        appOrigin,
+        appBaseUrl: appOrigin,
+        oidcIssuer: 'https://fa.test/api/auth',
+        clientId: 'agent-wallet-web',
+        audience: `${appOrigin}/api`,
+        agentIssuer: 'https://fa.test/api/auth',
+        environment: 'sandbox',
+        defaultNetwork: baseSepoliaNetwork.id,
+        networks,
+        cdpProjectId: 'cdp-project',
+      },
+    }),
+  )
+  await page.route('**/api/overview*', (route) => {
+    const requestedNetwork = new URL(route.request().url()).searchParams.get('network')
+    const network =
+      networks.find((candidate) => candidate.id === requestedNetwork) ?? baseSepoliaNetwork
+    return route.fulfill({
+      json: {
+        user: {
+          id: 'user-1',
+          issuer: 'https://fa.test/api/auth',
+          subject: 'user-1',
+          email: 'owner@example.com',
+          cdpUserId: null,
+          accounts: [],
+          pausedAt: null,
+        },
+        grants: [],
+        payments: [],
+        auditEvents: [],
+        runtime: {
+          network: network.id,
+          family: network.family,
+          account: null,
+          balances: [],
+          balanceStatus: 'unavailable',
+          faucetAssets: network.faucetAssets,
+        },
+      },
+    })
+  })
+
+  await page.goto('/')
+  await expect(page.getByRole('button', { name: 'Set up EVM wallet' })).toBeVisible()
+  await page.getByRole('button', { name: 'Set up EVM wallet' }).click()
+  const evmDialog = page.getByRole('dialog')
+  await expect(evmDialog.getByRole('heading', { name: 'Set up EVM wallet' })).toBeVisible()
+  await expect(evmDialog).toContainText('shared by Base Sepolia and World Sepolia')
+  await expect(evmDialog.getByRole('radio')).toHaveCount(0)
+  await evmDialog.getByRole('button', { name: 'Cancel' }).click()
+
+  await page.getByLabel('Network view').selectOption(solanaDevnetNetwork.id)
+  await expect(page).toHaveURL('/chains/solana-devnet')
+  await expect(page.getByRole('button', { name: 'Set up Solana wallet' })).toBeVisible()
+  await page.getByRole('button', { name: 'Set up Solana wallet' }).click()
+  const solanaDialog = page.getByRole('dialog')
+  await expect(solanaDialog.getByRole('heading', { name: 'Set up Solana wallet' })).toBeVisible()
+  await expect(solanaDialog).toContainText('remains separate from your EVM account')
+  await expect(solanaDialog.getByRole('radio')).toHaveCount(0)
 })
 
 test('validates and approves an Agent budget request', async ({ page }) => {
@@ -335,20 +462,20 @@ test('switches environments through the shared session without visible OIDC navi
   await page.route('**/api/sandbox/config', (route) =>
     route.fulfill({
       json: {
-        appOrigin: 'http://localhost:6230',
-        appBaseUrl: 'http://localhost:6230/sandbox',
+        appOrigin,
+        appBaseUrl: `${appOrigin}/sandbox`,
         oidcIssuer: 'https://fa.test/api/auth',
         clientId: 'agent-wallet-web',
-        audience: 'http://localhost:6230/api/sandbox',
+        audience: `${appOrigin}/api/sandbox`,
         agentIssuer: 'https://fa.test/api/auth',
         environment: 'sandbox',
-        network: 'eip155:84532',
-        paymentsEnabled: true,
+        defaultNetwork: 'eip155:84532',
+        networks: [baseSepoliaNetwork],
         cdpProjectId: null,
       },
     }),
   )
-  await page.route('**/api/sandbox/overview', async (route) => {
+  await page.route('**/api/sandbox/overview*', async (route) => {
     await new Promise((resolve) => setTimeout(resolve, 250))
     await route.fulfill({
       json: {
@@ -358,17 +485,19 @@ test('switches environments through the shared session without visible OIDC navi
           subject: 'user-1',
           email: 'owner@example.com',
           cdpUserId: null,
-          walletAddress: null,
-          delegationExpiresAt: null,
+          accounts: [],
           pausedAt: null,
         },
         grants: [],
         payments: [],
         auditEvents: [],
         runtime: {
+          network: 'eip155:84532',
+          family: 'evm',
+          account: null,
           balances: [],
           balanceStatus: 'unavailable',
-          faucetAvailable: false,
+          faucetAssets: [],
         },
       },
     })
@@ -393,7 +522,7 @@ test('switches environments through the shared session without visible OIDC navi
   const walletNavigations: Array<{ path: string; exchangeComplete: boolean }> = []
   page.on('framenavigated', (frame) => {
     const url = new URL(frame.url())
-    if (frame === page.mainFrame() && url.origin === 'http://localhost:6230') {
+    if (frame === page.mainFrame() && url.origin === appOrigin) {
       walletNavigations.push({ path: url.pathname, exchangeComplete })
     }
   })
@@ -406,7 +535,7 @@ test('switches environments through the shared session without visible OIDC navi
   observeDiscovery = true
   await page.getByRole('link', { name: 'Sandbox' }).click()
   await expect(page.getByText('Loading your wallet…')).toBeVisible()
-  await page.waitForURL('http://localhost:6230/sandbox')
+  await page.waitForURL(`${appOrigin}/sandbox`)
   await expect(page.getByText('Loading your wallet…')).toBeVisible()
   await expect(page.locator('.dashboard-skeleton')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()

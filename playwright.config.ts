@@ -1,11 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
+const baseURL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:6230'
+
 export default defineConfig({
   testDir: './tests/browser',
   fullyParallel: true,
   reporter: [['html', { open: 'never' }], ['list']],
   use: {
-    baseURL: 'http://localhost:6230',
+    baseURL,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
@@ -16,9 +18,9 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:6230/healthz',
-    reuseExistingServer: true,
+    command: process.env.PLAYWRIGHT_WEB_SERVER_COMMAND ?? 'pnpm dev',
+    url: `${baseURL}/healthz`,
+    reuseExistingServer: !process.env.PLAYWRIGHT_WEB_SERVER_COMMAND,
     timeout: 120_000,
   },
 })

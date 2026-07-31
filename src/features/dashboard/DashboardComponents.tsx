@@ -39,9 +39,11 @@ export function WalletOverview({
   copied: boolean
   onCopy: (address: string) => Promise<void>
 }) {
-  const address = overview.user.walletAddress
+  const address = overview.runtime.account?.address ?? null
+  const delegationExpiresAt = overview.runtime.account?.delegationExpiresAt ?? null
   const usdc = overview.runtime.balances.find((balance) => balance.symbol === 'USDC')
-  const eth = overview.runtime.balances.find((balance) => balance.symbol === 'ETH')
+  const native = overview.runtime.balances.find((balance) => balance.assetAddress === null)
+  const network = config.networks.find((candidate) => candidate.id === overview.runtime.network)
   const activeGrants = overview.grants.filter((grant) => !grant.revokedAt)
   const remainingBudget = activeGrants.reduce((sum, grant) => {
     const remaining = BigInt(grant.totalLimit) - BigInt(grant.spentTotal)
@@ -62,7 +64,7 @@ export function WalletOverview({
           {usdc ? formatToken(usdc.amount, usdc.decimals) : '—'} <span>USDC</span>
         </h2>
         <p className="secondary-balance">
-          {eth ? `${formatToken(eth.amount, eth.decimals)} ETH` : 'No network balance'}
+          {native ? `${formatToken(native.amount, native.decimals)} ${native.symbol}` : 'No network balance'}
         </p>
         {address ? (
           <div className="address-block">
@@ -76,17 +78,19 @@ export function WalletOverview({
               </button>
               <a
                 className="icon-button"
-                href={blockExplorerAddressUrl(config.network, address)!}
+                href={blockExplorerAddressUrl(overview.runtime.network, address)!}
                 target="_blank"
                 rel="noreferrer"
-                aria-label="View wallet on BaseScan"
+                aria-label="View wallet in the block explorer"
               >
                 <ExternalLink size={17} />
               </a>
             </div>
           </div>
         ) : (
-          <p className="empty-copy">Provision a wallet to begin assigning Agent budgets.</p>
+          <p className="empty-copy">
+            Set up the {network?.family === 'evm' ? 'shared EVM' : 'Solana'} account to use {network?.name}.
+          </p>
         )}
       </div>
 
@@ -106,23 +110,26 @@ export function WalletOverview({
           <Metric
             icon={<KeyRound size={17} />}
             label="Signing delegation"
-            value={overview.user.delegationExpiresAt
-              ? new Date(overview.user.delegationExpiresAt).toLocaleDateString()
+            value={delegationExpiresAt
+              ? new Date(delegationExpiresAt).toLocaleDateString()
               : 'Inactive'}
           />
         </div>
         {address ? (
           <div className="control-actions">
-            {overview.runtime.faucetAvailable ? (
+            {overview.runtime.faucetAssets.length > 0 ? (
               <div className="fund-actions">
-                {(['usdc', 'eth'] as const).map((token) => (
+                {overview.runtime.faucetAssets.map((asset) => (
                   <button
                     className="secondary-button"
-                    disabled={busy(`faucet-${token}`)}
-                    key={token}
-                    onClick={() => void run(`faucet-${token}`, () => requestFaucet(config, { token }))}
+                    disabled={busy(`faucet-${asset}`)}
+                    key={asset}
+                    onClick={() => void run(
+                      `faucet-${asset}`,
+                      () => requestFaucet(config, { network: overview.runtime.network, asset }),
+                    )}
                   >
-                    <Droplets size={16} /> Get test {token.toUpperCase()}
+                    <Droplets size={16} /> Get test {asset === 'native' ? network?.nativeSymbol : 'USDC'}
                   </button>
                 ))}
               </div>
@@ -151,7 +158,11 @@ export function WalletOverview({
       ) : null}
       {!address ? (
         config.cdpProjectId ? (
-          <ProvisionWallet config={config} onComplete={reload} />
+          <ProvisionWallet
+            config={config}
+            family={overview.runtime.family}
+            onComplete={reload}
+          />
         ) : (
           <div className="notice overview-notice">
             <strong>Wallet provisioning is unavailable</strong>
@@ -159,9 +170,14 @@ export function WalletOverview({
           </div>
         )
       ) : null}
-      {address && delegationNeedsRenewal(overview.user.delegationExpiresAt) ? (
+      {address && delegationNeedsRenewal(delegationExpiresAt) ? (
         config.cdpProjectId ? (
-          <ProvisionWallet config={config} onComplete={reload} renewal />
+          <ProvisionWallet
+            config={config}
+            family={overview.runtime.family}
+            onComplete={reload}
+            renewal
+          />
         ) : (
           <div className="notice error overview-notice">
             <strong>Signing delegation needs renewal</strong>
@@ -355,7 +371,7 @@ export function Payments({
               {payment.transactionHash ? (
                 <a
                   className="receipt-link"
-                  href={blockExplorerTransactionUrl(config.network, payment.transactionHash)!}
+                  href={blockExplorerTransactionUrl(payment.network, payment.transactionHash)!}
                   target="_blank"
                   rel="noreferrer"
                 >
