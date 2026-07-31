@@ -2,6 +2,7 @@ import type { AgentGrant, WalletOverview as WalletOverviewData } from '../../../
 import { actOnGrant, actOnWallet, requestFaucet, revokeGrant } from '../../api'
 import type { PublicConfig } from '../../auth'
 import { ProvisionWallet } from '../../cdp'
+import { useAgentInfo } from '../../agent-info'
 import { blockExplorerAddressUrl, blockExplorerTransactionUrl } from '../../environment'
 import { delegationNeedsRenewal, eventLabel, formatToken, formatUsdc } from '../../lib/format'
 import {
@@ -204,78 +205,16 @@ export function AgentGrants({
   return (
     <section className={`records-section${page ? ' page-records' : ''}`} aria-label="Agent budgets">
       <div className={`agent-grid${compact ? ' compact-grid' : ''}`}>
-        {grants.map((grant) => {
-          const spent = BigInt(grant.spentTotal)
-          const total = BigInt(grant.totalLimit)
-          const progress = total > 0n ? Number((spent * 10_000n) / total) / 100 : 0
-          return (
-            <article className="agent-card" key={grant.id}>
-              <div className="agent-card-header">
-                <span className="agent-avatar"><Bot size={20} /></span>
-                <div className="agent-title">
-                  <h3>{grant.name}</h3>
-                  <code>{grant.agentSubject}</code>
-                </div>
-                <span className={grant.revokedAt ? 'status revoked' : grant.pausedAt ? 'status paused' : 'status'}>
-                  <span />
-                  {grant.revokedAt ? 'Revoked' : grant.pausedAt ? 'Paused' : 'Active'}
-                </span>
-              </div>
-              <div className="budget-row">
-                <div>
-                  <span>Spent</span>
-                  <strong>{formatUsdc(spent)}</strong>
-                </div>
-                <div>
-                  <span>Total budget</span>
-                  <strong>{formatUsdc(total)}</strong>
-                </div>
-              </div>
-              <div
-                className="budget-progress"
-                role="progressbar"
-                aria-label={`${grant.name} budget used`}
-                aria-valuenow={Math.min(progress, 100)}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                style={{ '--progress': `${Math.min(progress, 100)}%` } as CSSProperties}
-              >
-                <span />
-              </div>
-              <div className="policy-list">
-                <span>Per payment <strong>{formatUsdc(BigInt(grant.perTransactionLimit))}</strong></span>
-                <span>{grant.allowedOrigins.length ? `${grant.allowedOrigins.length} merchant origins` : 'Any merchant origin'}</span>
-                <span>{grant.expiresAt ? `Expires ${new Date(grant.expiresAt).toLocaleDateString()}` : 'No expiration'}</span>
-              </div>
-              {!grant.revokedAt ? (
-                <div className="agent-actions">
-                  <button className="quiet-button" onClick={() => onEdit(grant)}>
-                    <Pencil size={15} /> Edit
-                  </button>
-                  <button
-                    className="quiet-button"
-                    disabled={busy(`grant-${grant.id}`)}
-                    onClick={() =>
-                      void run(`grant-${grant.id}`, () =>
-                        actOnGrant(config, grant.id, { action: grant.pausedAt ? 'resume' : 'pause' }),
-                      )
-                    }
-                  >
-                    {grant.pausedAt ? <Play size={15} /> : <Pause size={15} />}
-                    {grant.pausedAt ? 'Resume' : 'Pause'}
-                  </button>
-                  <button
-                    className="quiet-button destructive"
-                    disabled={busy(`revoke-${grant.id}`)}
-                    onClick={() => void run(`revoke-${grant.id}`, () => revokeGrant(config, grant.id))}
-                  >
-                    <Ban size={15} /> Revoke
-                  </button>
-                </div>
-              ) : null}
-            </article>
-          )
-        })}
+        {grants.map((grant) => (
+          <AgentGrantCard
+            key={grant.id}
+            grant={grant}
+            config={config}
+            busy={busy}
+            run={run}
+            onEdit={onEdit}
+          />
+        ))}
         {!grants.length ? (
           <div className="empty-state">
             <span className="surface-icon"><Bot size={20} /></span>
@@ -285,6 +224,96 @@ export function AgentGrants({
         ) : null}
       </div>
     </section>
+  )
+}
+
+function AgentGrantCard({
+  grant,
+  config,
+  busy,
+  run,
+  onEdit,
+}: {
+  grant: AgentGrant
+  config: PublicConfig
+  busy: (key: string) => boolean
+  run: (key: string, operation: () => Promise<unknown>) => Promise<unknown>
+  onEdit: (grant: AgentGrant) => void
+}) {
+  const agentInfo = useAgentInfo(grant.agentIssuer, grant.agentSubject).data
+  const spent = BigInt(grant.spentTotal)
+  const total = BigInt(grant.totalLimit)
+  const progress = total > 0n ? Number((spent * 10_000n) / total) / 100 : 0
+
+  return (
+    <article className="agent-card">
+      <div className="agent-card-header">
+        <span className="agent-avatar">
+          {agentInfo?.picture ? <img src={agentInfo.picture} alt="" /> : <Bot size={20} />}
+        </span>
+        <div className="agent-title">
+          <h3>{agentInfo?.name ?? grant.name}</h3>
+          {agentInfo && agentInfo.name !== grant.name ? <span>{grant.name}</span> : null}
+          <code>{grant.agentSubject}</code>
+        </div>
+        <span className={grant.revokedAt ? 'status revoked' : grant.pausedAt ? 'status paused' : 'status'}>
+          <span />
+          {grant.revokedAt ? 'Revoked' : grant.pausedAt ? 'Paused' : 'Active'}
+        </span>
+      </div>
+      <div className="budget-row">
+        <div>
+          <span>Spent</span>
+          <strong>{formatUsdc(spent)}</strong>
+        </div>
+        <div>
+          <span>Total budget</span>
+          <strong>{formatUsdc(total)}</strong>
+        </div>
+      </div>
+      <div
+        className="budget-progress"
+        role="progressbar"
+        aria-label={`${grant.name} budget used`}
+        aria-valuenow={Math.min(progress, 100)}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        style={{ '--progress': `${Math.min(progress, 100)}%` } as CSSProperties}
+      >
+        <span />
+      </div>
+      <div className="policy-list">
+        <span>Per payment <strong>{formatUsdc(BigInt(grant.perTransactionLimit))}</strong></span>
+        <span>{grant.allowedOrigins.length ? `${grant.allowedOrigins.length} merchant origins` : 'Any merchant origin'}</span>
+        <span>{grant.expiresAt ? `Expires ${new Date(grant.expiresAt).toLocaleDateString()}` : 'No expiration'}</span>
+      </div>
+      {!grant.revokedAt ? (
+        <div className="agent-actions">
+          <button className="quiet-button" onClick={() => onEdit(grant)}>
+            <Pencil size={15} /> Edit
+          </button>
+          <button
+            className="quiet-button"
+            disabled={busy(`grant-${grant.id}`)}
+            onClick={() =>
+              void run(`grant-${grant.id}`, () =>
+                actOnGrant(config, grant.id, { action: grant.pausedAt ? 'resume' : 'pause' }),
+              )
+            }
+          >
+            {grant.pausedAt ? <Play size={15} /> : <Pause size={15} />}
+            {grant.pausedAt ? 'Resume' : 'Pause'}
+          </button>
+          <button
+            className="quiet-button destructive"
+            disabled={busy(`revoke-${grant.id}`)}
+            onClick={() => void run(`revoke-${grant.id}`, () => revokeGrant(config, grant.id))}
+          >
+            <Ban size={15} /> Revoke
+          </button>
+        </div>
+      ) : null}
+    </article>
   )
 }
 

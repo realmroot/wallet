@@ -3,6 +3,7 @@ import type { PublicConfig } from '../auth'
 import { hasToken } from '../auth'
 import { PolicyFields, policyFormSchema, toPolicyInput, type PolicyFormValues } from '../features/grants/policy-form'
 import { toDateTimeLocal } from '../lib/format'
+import { useAgentInfo } from '../agent-info'
 import { LoginPage } from './LoginPage'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -68,6 +69,7 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
   return (
     <ApprovalForm
       requestedName={request.data.requestedName}
+      agentIssuer={request.data.agentIssuer}
       agentSubject={request.data.agentSubject}
       busy={decision.isPending}
       error={decision.error?.message}
@@ -85,6 +87,7 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
 
 function ApprovalForm({
   requestedName,
+  agentIssuer,
   agentSubject,
   busy,
   error,
@@ -92,12 +95,14 @@ function ApprovalForm({
   onDeny,
 }: {
   requestedName: string | null
+  agentIssuer: string
   agentSubject: string
   busy: boolean
   error?: string
   onApprove: (values: PolicyFormValues) => Promise<unknown>
   onDeny: () => Promise<unknown>
 }) {
+  const agentInfo = useAgentInfo(agentIssuer, agentSubject).data
   const form = useForm<PolicyFormValues>({
     resolver: zodResolver(policyFormSchema),
     defaultValues: {
@@ -130,9 +135,12 @@ function ApprovalForm({
             how much it can spend.
           </p>
           <div className="identity-card">
-            <span className="agent-avatar"><Bot size={20} /></span>
+            <span className="agent-avatar">
+              {agentInfo?.picture ? <img src={agentInfo.picture} alt="" /> : <Bot size={20} />}
+            </span>
             <div>
               <span>Verified Agent identity</span>
+              {agentInfo ? <strong>{agentInfo.name}</strong> : null}
               <code>{agentSubject}</code>
             </div>
             <ShieldCheck size={18} />

@@ -136,22 +136,17 @@ async function discoverKeySet(issuer: string) {
 }
 
 function resolveRealmrootAgent(payload: JWTPayload, issuer: string) {
-  const host = payload.act as
+  const agent = payload.act as
     | {
         iss?: unknown
         sub?: unknown
-        actor_type?: unknown
-        act?: unknown
+        sub_profile?: unknown
       }
     | undefined
-  const agent = host?.act as { iss?: unknown; sub?: unknown; actor_type?: unknown } | undefined
   if (
-    host?.iss !== issuer ||
-    typeof host.sub !== 'string' ||
-    host.actor_type !== 'host' ||
     agent?.iss !== issuer ||
-    agent.actor_type !== 'agent' ||
-    typeof agent.sub !== 'string'
+    typeof agent.sub !== 'string' ||
+    agent.sub_profile !== 'ai_agent'
   ) {
     throw agentUnauthorized('A delegated Realmroot Agent access token is required.')
   }

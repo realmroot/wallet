@@ -41,6 +41,37 @@ test.beforeEach(async ({ page }) => {
       },
     }),
   )
+  await page.route('https://fa.test/api/auth/.well-known/openid-configuration', (route) =>
+    route.fulfill({
+      json: {
+        issuer: 'https://fa.test/api/auth',
+        agentinfo_endpoint: 'https://fa.test/api/auth/agentinfo',
+      },
+    }),
+  )
+  await page.route('https://fa.test/api/auth/agentinfo?*', (route) => {
+    const subject = new URL(route.request().url()).searchParams.get('sub')
+    const names: Record<string, string> = {
+      'agent-codex': 'Codex Agent',
+      'agent-budget-request': 'Budget Agent Identity',
+    }
+    return route.fulfill({
+      json: {
+        iss: 'https://fa.test/api/auth',
+        sub: subject,
+        sub_profile: 'ai_agent',
+        name: names[subject ?? ''] ?? 'Test Agent',
+        picture: 'https://fa.test/agent-picture-v1.svg',
+        updated_at: 1_785_450_000,
+      },
+    })
+  })
+  await page.route('https://fa.test/agent-picture-v1.svg', (route) =>
+    route.fulfill({
+      contentType: 'image/svg+xml',
+      body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>',
+    }),
+  )
   await page.route('**/api/overview', (route) =>
     route.fulfill({
       json: {
@@ -124,7 +155,12 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   await expect(page.getByText('12.5 USDC')).toBeVisible()
   await expect(page.getByText('0.01 ETH')).toBeVisible()
+  await expect(page.getByText('Codex Agent')).toBeVisible()
   await expect(page.getByText('Local Codex')).toBeVisible()
+  await expect(page.locator('.agent-card .agent-avatar img')).toHaveAttribute(
+    'src',
+    'https://fa.test/agent-picture-v1.svg',
+  )
   await expect(page.getByRole('link', { name: 'Receipt' })).toHaveAttribute(
     'href',
     `https://sepolia.basescan.org/tx/0x${'ab'.repeat(32)}`,
@@ -235,6 +271,7 @@ test('validates and approves an Agent budget request', async ({ page }) => {
 
   await page.goto(`/authorize#request=request-1&token=${'a'.repeat(32)}`)
   await expect(page.getByRole('heading', { name: 'Allow this Agent to spend?' })).toBeVisible()
+  await expect(page.getByText('Budget Agent Identity')).toBeVisible()
   await expect(page.getByText('agent-budget-request')).toBeVisible()
 
   await page.getByLabel('Allowed recipient addresses').fill('not-an-address')
@@ -294,6 +331,7 @@ test('switches environments through the shared session without visible OIDC navi
   let tokenExchange: Record<string, unknown> | null = null
   let exchangeComplete = false
   let discoveryRequested = false
+  let observeDiscovery = false
   await page.route('**/api/sandbox/config', (route) =>
     route.fulfill({
       json: {
@@ -348,6 +386,7 @@ test('switches environments through the shared session without visible OIDC navi
     })
   })
   await page.route('https://fa.test/api/auth/.well-known/openid-configuration', (route) => {
+    if (!observeDiscovery) return route.fallback()
     discoveryRequested = true
     return route.abort()
   })
@@ -360,9 +399,11 @@ test('switches environments through the shared session without visible OIDC navi
   })
 
   await page.goto('/')
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   await page.evaluate(() => {
     localStorage.setItem('agent-wallet.refresh_token', 'production-refresh-token')
   })
+  observeDiscovery = true
   await page.getByRole('link', { name: 'Sandbox' }).click()
   await expect(page.getByText('Loading your wallet…')).toBeVisible()
   await page.waitForURL('http://localhost:6230/sandbox')

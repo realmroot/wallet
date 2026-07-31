@@ -1028,6 +1028,25 @@ describe('Agent Wallet', () => {
     expect(response.headers.get('www-authenticate')).toContain('invalid_token')
   })
 
+  it('rejects an Agent actor without the ai_agent subject profile', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken(
+      true,
+      ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
+      audience,
+      'person',
+    )
+
+    const response = await pay(agentToken, paymentRequired('25000'))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({
+      error: 'unauthorized',
+      message: 'A delegated Realmroot Agent access token is required.',
+    })
+  })
+
   it('does not let another user approve an Agent budget request', async () => {
     const otherToken = await humanToken('user-2')
     const agentToken = await createAgentToken()
@@ -1063,6 +1082,7 @@ async function createAgentToken(
   delegated = true,
   grantedScopes = ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
   tokenAudience = audience,
+  subjectProfile = 'ai_agent',
 ) {
   const thumbprint = await calculateJwkThumbprint(dpopPublicJwk)
   return new SignJWT({
@@ -1071,11 +1091,10 @@ async function createAgentToken(
     act: delegated
       ? {
           iss: agentIssuer,
-          sub: 'host-1',
-          actor_type: 'host',
-          act: { iss: agentIssuer, sub: agentSubject, actor_type: 'agent' },
+          sub: agentSubject,
+          sub_profile: subjectProfile,
         }
-      : { iss: agentIssuer, sub: 'host-1', actor_type: 'host' },
+      : undefined,
   })
     .setProtectedHeader({ alg: 'RS256', kid: 'agent', typ: 'at+jwt' })
     .setIssuer(agentIssuer)
