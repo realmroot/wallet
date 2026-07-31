@@ -99,6 +99,31 @@ export default defineConfig({
             }
             return cdpTestError(404, 'not_found', 'Unexpected CDP test request.')
           }
+          if (url.origin === 'https://api.devnet.solana.com') {
+            const body = await request.json<{
+              method?: string
+              params?: [string]
+            }>()
+            if (request.method !== 'POST' || body.method !== 'getAccountInfo') {
+              return new Response('Unexpected Solana RPC request.', { status: 502 })
+            }
+            return Response.json({
+              jsonrpc: '2.0',
+              id: 1,
+              result: {
+                value:
+                  body.params?.[0] === '2y5gkUuuwubx6aQfw4wRkzuc6UU6ohqsZrvikS1pLEDP'
+                    ? null
+                    : {
+                        data: ['', 'base64'],
+                        executable: false,
+                        lamports: 1,
+                        owner: '11111111111111111111111111111111',
+                        rentEpoch: 0,
+                      },
+              },
+            })
+          }
           if (url.origin !== 'https://fa.test') {
             return new Response('Unexpected outbound request.', { status: 502 })
           }

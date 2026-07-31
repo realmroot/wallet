@@ -73,6 +73,7 @@ import {
   walletNetworkDefinition,
   walletNetworks,
 } from './network'
+import { validatePaymentRecipient } from './payment-recipient'
 import type { PaymentPayload } from '@x402/core/types'
 import {
   decodePaymentRequiredHeader,
@@ -564,6 +565,7 @@ function createAgentApi() {
       if (!networkPaymentsEnabled(c.env, accepted.network)) {
         throw forbidden(`Payments are disabled on ${accepted.network}.`)
       }
+      await validatePaymentRecipient(c.env, accepted.network, accepted.payTo)
       const requirementHash = await hashRequirement(paymentRequired)
       const reservation = await reservePayment(c.env.DB, {
         owner: principal.owner,

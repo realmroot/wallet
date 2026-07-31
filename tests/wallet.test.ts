@@ -1,5 +1,5 @@
 import { env, SELF } from 'cloudflare:test'
-import type { PaymentRequired } from '../shared/contracts'
+import type { PaymentRequired, UpdateWalletInput } from '../shared/contracts'
 import { cleanupExpiredReservations } from '../server/repository'
 import {
   hasMatchingDeveloperJwtIdentity,
@@ -396,7 +396,15 @@ describe('Agent Wallet', () => {
       openapi: '3.1.0',
       paths: {
         '/x402/payments': {
-          post: { operationId: 'createPaymentAuthorization' },
+          post: {
+            operationId: 'createPaymentAuthorization',
+            responses: {
+              400: {
+                description:
+                  'The x402 requirement is invalid or its Solana recipient is not initialized on-chain.',
+              },
+            },
+          },
         },
       },
     })
@@ -427,6 +435,24 @@ describe('Agent Wallet', () => {
         },
         '/x402/payments/{paymentId}/settlement': {
           put: { operationId: 'confirmPaymentSettlement' },
+        },
+      },
+      components: {
+        schemas: {
+          PaymentRequired: {
+            properties: {
+              accepts: {
+                items: {
+                  properties: {
+                    payTo: {
+                      description:
+                        'Merchant recipient. On Solana, this address must already exist on the selected network.',
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
     })
@@ -780,6 +806,36 @@ describe('Agent Wallet', () => {
     expect((await pay(agentToken, requirement)).status).toBe(200)
     expect((await pay(agentToken, paymentRequired('26000'), idempotencyKey)).status).toBe(409)
     expect((await pay(agentToken, paymentRequired('100001'))).status).toBe(403)
+  })
+
+  it('rejects an uninitialized Solana recipient before reserving Agent budget', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token, [
+      { family: 'evm', address: walletAddress },
+      { family: 'solana', address: '11111111111111111111111111111111' },
+    ])
+    const agentToken = await createAgentToken()
+
+    const response = await pay(
+      agentToken,
+      solanaPaymentRequired('25000', '2y5gkUuuwubx6aQfw4wRkzuc6UU6ohqsZrvikS1pLEDP'),
+    )
+
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({
+      error: 'bad_request',
+      message:
+        'The Solana payment recipient is not initialized on Solana Devnet. Use an address that already exists on-chain.',
+    })
+    const overviewResponse = await SELF.fetch('https://wallet.test/api/overview', {
+      headers: { authorization: `Bearer ${token}` },
+    })
+    const state = await overviewResponse.json<{
+      grants: Array<{ spentTotal: string }>
+      payments: unknown[]
+    }>()
+    expect(state.grants[0]?.spentTotal).toBe('0')
+    expect(state.payments).toEqual([])
   })
 
   it('returns the authenticated Agent payment state without sensitive authorization data', async () => {
@@ -1356,13 +1412,16 @@ async function pay(
   })
 }
 
-async function provisionAndGrant(token: string) {
+async function provisionAndGrant(
+  token: string,
+  accounts: UpdateWalletInput['accounts'] = [{ family: 'evm', address: walletAddress }],
+) {
   const provision = await SELF.fetch('https://wallet.test/api/wallet', {
     method: 'PUT',
     headers: jsonHeaders(`Bearer ${token}`),
-      body: JSON.stringify({
-        cdpUserId: 'cdp-user-1',
-        accounts: [{ family: 'evm', address: walletAddress }],
+    body: JSON.stringify({
+      cdpUserId: 'cdp-user-1',
+      accounts,
     }),
   })
   expect(provision.status, await provision.clone().text()).toBe(204)
@@ -1466,6 +1525,27 @@ function paymentRequiredForNetwork(amount: string, network: 'eip155:4801') {
       payTo: '0x0000000000000000000000000000000000000001',
       maxTimeoutSeconds: 300,
       extra: { name: 'USD Coin', version: '2' },
+    }],
+  }
+}
+
+function solanaPaymentRequired(amount: string, payTo: string) {
+  const network = 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1' as const
+  return {
+    x402Version: 2,
+    resource: {
+      url: 'https://merchant.test/weather',
+      description: 'Paid test weather',
+      mimeType: 'application/json',
+    },
+    accepts: [{
+      scheme: 'exact',
+      network,
+      asset: walletNetworkDefinition(network).asset.address,
+      amount,
+      payTo,
+      maxTimeoutSeconds: 300,
+      extra: { feePayer: 'CKPKJWNdJEqa81x7CkZ14BVPiY6y16Sxs7owznqtWYp5' },
     }],
   }
 }

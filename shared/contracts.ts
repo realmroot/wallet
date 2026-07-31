@@ -32,7 +32,9 @@ const paymentOptionSchema = z.object({
   network: networkId.transform((value) => value as `${string}:${string}`),
   asset: walletAddress,
   amount: atomicAmount,
-  payTo: walletAddress,
+  payTo: walletAddress.describe(
+    'Merchant recipient. On Solana, this address must already exist on the selected network.',
+  ),
   maxTimeoutSeconds: z.number().int().positive(),
   extra: z.record(z.string(), z.unknown()),
 })

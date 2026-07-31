@@ -23,6 +23,14 @@ const badRequestResponse = {
   },
 } as const
 
+const paymentAuthorizationBadRequestResponse = {
+  400: {
+    description:
+      'The x402 requirement is invalid or its Solana recipient is not initialized on-chain.',
+    content: json(apiErrorSchema),
+  },
+} as const
+
 const authenticationResponses = {
   401: {
     description: 'Authentication failed.',
@@ -269,7 +277,7 @@ export const createPaymentAuthorizationRoute = createRoute({
       },
       content: json(budgetRequestStateSchema),
     },
-    ...badRequestResponse,
+    ...paymentAuthorizationBadRequestResponse,
     ...authenticationResponses,
     ...conflictResponse,
     ...payloadTooLargeResponse,
