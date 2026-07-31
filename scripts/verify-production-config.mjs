@@ -13,9 +13,15 @@ for (const name of [
   'APP_BASE_URL',
   'OIDC_ISSUER',
   'OIDC_AUDIENCE',
-  'WALLET_RPC_URL',
   'SANDBOX_OIDC_AUDIENCE',
-  'SANDBOX_WALLET_RPC_URL',
+  'BASE_RPC_URL',
+  'BASE_SEPOLIA_RPC_URL',
+  'POLYGON_RPC_URL',
+  'ARBITRUM_RPC_URL',
+  'WORLD_RPC_URL',
+  'WORLD_SEPOLIA_RPC_URL',
+  'SOLANA_RPC_URL',
+  'SOLANA_DEVNET_RPC_URL',
 ]) {
   const value = variables[name]
   let url
@@ -44,20 +50,37 @@ if (variables.OIDC_ISSUER?.endsWith('/')) {
 if (variables.SIGNER_MODE !== 'cdp') {
   errors.push('SIGNER_MODE must be cdp.')
 }
-if (variables.WALLET_NETWORK !== 'eip155:8453') {
-  errors.push('WALLET_NETWORK must be Base Mainnet (eip155:8453).')
+if (variables.DEFAULT_WALLET_NETWORK !== 'eip155:8453') {
+  errors.push('DEFAULT_WALLET_NETWORK must be Base Mainnet (eip155:8453).')
 }
-if (variables.SANDBOX_WALLET_NETWORK !== 'eip155:84532') {
-  errors.push('SANDBOX_WALLET_NETWORK must be Base Sepolia (eip155:84532).')
+if (variables.SANDBOX_DEFAULT_WALLET_NETWORK !== 'eip155:84532') {
+  errors.push('SANDBOX_DEFAULT_WALLET_NETWORK must be Base Sepolia (eip155:84532).')
 }
 if (variables.WALLET_ENVIRONMENT !== 'production') {
   errors.push('WALLET_ENVIRONMENT must be production for the default API.')
 }
-if (variables.PAYMENTS_ENABLED !== 'false') {
-  errors.push('Production payments must remain disabled until mainnet acceptance.')
+const productionNetworks = new Set(variables.WALLET_NETWORKS?.split(',') ?? [])
+for (const network of [
+  'eip155:8453',
+  'eip155:137',
+  'eip155:42161',
+  'eip155:480',
+  'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+]) {
+  if (!productionNetworks.has(network)) errors.push(`WALLET_NETWORKS must include ${network}.`)
 }
-if (variables.SANDBOX_PAYMENTS_ENABLED !== 'true') {
-  errors.push('Sandbox payments must be enabled.')
+if (variables.PAYMENT_NETWORKS !== '') {
+  errors.push('Production PAYMENT_NETWORKS must remain empty until mainnet acceptance.')
+}
+const sandboxNetworks = new Set(variables.SANDBOX_WALLET_NETWORKS?.split(',') ?? [])
+const sandboxPaymentNetworks = new Set(variables.SANDBOX_PAYMENT_NETWORKS?.split(',') ?? [])
+for (const network of [
+  'eip155:84532',
+  'eip155:4801',
+  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+]) {
+  if (!sandboxNetworks.has(network)) errors.push(`SANDBOX_WALLET_NETWORKS must include ${network}.`)
+  if (!sandboxPaymentNetworks.has(network)) errors.push(`SANDBOX_PAYMENT_NETWORKS must include ${network}.`)
 }
 if (variables.OIDC_AUDIENCE !== `${variables.APP_ORIGIN}/api`) {
   errors.push('OIDC_AUDIENCE must use the default production API URL.')

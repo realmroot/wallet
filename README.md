@@ -2,11 +2,17 @@
 
 Agent Wallet is an independent, OIDC-native wallet SaaS for delegated x402 payments.
 
-Each OIDC user gets one CDP end-user wallet. A user can authorize many Agents with separate total, per-payment, and daily/monthly USDC limits, an expiration time, and optional merchant-origin and recipient-address allowlists. The user can pause one Agent or freeze every Agent payment from the Wallet immediately. Agents never receive a wallet private key or a CDP credential: they present a short-lived, DPoP-bound Agent access token, and Agent Wallet applies policy before asking CDP to sign the x402 payment.
+Each OIDC user gets one CDP end user and explicitly chooses an EVM account, a
+Solana account, or both. A user can authorize many Agents with separate total,
+per-payment, and daily/monthly USDC limits, an expiration time, and optional
+merchant-origin and recipient-address allowlists. One Agent grant is a global
+cross-chain USDC budget: spending on any enabled chain consumes the same
+counters. The user can pause one Agent or freeze every Agent payment from the
+Wallet immediately. Agents never receive a private key or CDP credential.
 
-The production environment uses Base Mainnet (`eip155:8453`) and the explicitly
-marked Sandbox uses Base Sepolia (`eip155:84532`). Each environment has an
-independent D1 database. No smart contract is required.
+Production supports Base, Polygon, Arbitrum, World Chain, and Solana. Sandbox
+supports Base Sepolia, World Sepolia, and Solana Devnet. Each environment has
+an independent D1 database. No application smart contract is required.
 
 ## Trust boundary
 
@@ -57,7 +63,11 @@ CDP_API_KEY_SECRET=...
 CDP_WALLET_SECRET=...
 ```
 
-The Web app authenticates to CDP with the same OIDC JWT, creates an EOA, and grants the server a time-bounded signing delegation. The server calls `cdp.endUser.signEvmTypedData`; it cannot export the user's private key.
+The Web app authenticates to CDP with the same OIDC JWT. Account creation is
+never implicit: the user chooses EVM, Solana, or both in a dialog. One EVM EOA
+is reused across EVM networks and one Solana account is reused across Solana
+clusters. The server uses delegated `signEvmTypedData` and
+`signSolanaTransaction`; it cannot export the user's private key.
 
 `SIGNER_MODE=mock` is only for deterministic local regression. Its fixed test key must never be funded or deployed.
 
@@ -66,17 +76,19 @@ the Worker asks CDP to prove that the address belongs to the claimed end user
 and that CDP's developer-JWT authentication subject matches the current OIDC
 `sub`, then reads the real delegation expiry from CDP. CDP users and wallet
 addresses are unique within each Wallet environment. The dashboard shows the
-selected network's USDC/ETH balances and prompts the user to renew a delegation
-seven days before expiry. Testnet faucet funding is available only in Sandbox.
+selected network's canonical USDC and native-token balances and prompts the
+user to renew a delegation seven days before expiry. CDP faucet funding is
+available for Base Sepolia and Solana Devnet; World Sepolia requires external
+testnet funding.
 
 ## Environments
 
 Both environments are served from one origin:
 
-| Environment | UI | API | Network | D1 |
+| Environment | UI | API | Networks | D1 |
 | --- | --- | --- | --- | --- |
-| Production | `/` | `/api` | Base Mainnet | `agent-wallet-production` |
-| Sandbox | `/sandbox` | `/api/sandbox` | Base Sepolia | `agent-wallet-sandbox` |
+| Production | `/` | `/api` | Base, Polygon, Arbitrum, World, Solana | `agent-wallet-production` |
+| Sandbox | `/sandbox` | `/api/sandbox` | Base Sepolia, World Sepolia, Solana Devnet | `agent-wallet-sandbox` |
 
 Production is intentionally unmarked in routes and names. Sandbox always uses
 the explicit `sandbox` marker. Access tokens remain namespaced by environment
@@ -86,10 +98,12 @@ session for the target audience before loading the target route, so cached API
 data and access tokens cannot cross environments without exposing an
 intermediate login page.
 
-The checked-in production configuration currently sets
-`PAYMENTS_ENABLED=false`. Production discovery and read operations remain
-available, but payment authorization fails fast until mainnet payments are
-deliberately enabled. Sandbox payment authorization remains enabled.
+The default network has no route marker. Non-default networks use
+`/chains/{alias}` in Production and `/sandbox/chains/{alias}` in Sandbox.
+`WALLET_NETWORKS` controls visible networks and `PAYMENT_NETWORKS` controls
+which of those can authorize payments. The checked-in production
+`PAYMENT_NETWORKS` is empty until the sequential Base → Polygon → Arbitrum →
+World → Solana rollout is approved. All three Sandbox networks are enabled.
 
 ## Agent API flow
 
@@ -128,8 +142,9 @@ restish agent-wallet payment confirm <payment-id> --payment-response <value>
 ```
 
 Before requesting a signature, an Agent can run `restish agent-wallet wallet show` (the
-`GET /agent/wallet` operation) to read its delegated budget, restrictions,
-payment blockers, and maximum payable atomic USDC amount. The response does not
+`GET /agent/wallet` operation) to read its global delegated budget plus
+per-network account, readiness, blockers, and maximum payable atomic USDC
+amount. The response does not
 expose the controller profile, CDP user identifier, wallet balance, or direct
 database state.
 
@@ -144,9 +159,9 @@ for clients that do not expose HTTP headers directly.
 
 After the business request succeeds, the Agent forwards its
 `PAYMENT-RESPONSE` header to `restish agent-wallet payment confirm`. The Wallet
-verifies a successful receipt on the selected network contains the exact USDC transfer
-from the user's wallet to the requested merchant before marking the payment
-settled.
+verifies a successful EVM ERC-20 or Solana SPL receipt contains the exact
+canonical USDC transfer from the user's account to the requested merchant
+before marking the payment settled.
 At any point the Agent can recover the current state through
 `restish agent-wallet payment get` without access to Wallet storage or
 signature material.
@@ -186,7 +201,8 @@ pnpm build
 The Worker integration suite covers OIDC authentication, CDP wallet metadata,
 Agent grants, Realmroot Agent JWT validation, DPoP binding/replay rejection,
 budget enforcement, idempotency, and exact Base Sepolia USDC payment signing.
-It also covers concurrent budget enforcement, stale signing-reservation
+It also covers the network registry, Solana settlement balance changes,
+concurrent cross-chain budget enforcement, stale signing-reservation
 recovery, Wallet and grant pause/resume, grant edit/revoke, expiration,
 merchant and recipient allowlisting, asset allowlisting, and settlement
 recording. The Playwright suite operates the real React dashboard against its

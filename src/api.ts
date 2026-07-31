@@ -9,6 +9,7 @@ import type {
 } from '../shared/contracts'
 import { accessToken, hasRefreshToken, refreshAccessToken } from './auth'
 import { type PublicConfig, walletApi } from './api-client'
+import { apiBasePath, selectedNetwork } from './environment'
 import type { InferRequestType } from 'hono/client'
 
 type UpdateWalletInput = InferRequestType<typeof walletApi.wallet.$put>['json']
@@ -19,7 +20,12 @@ interface ApiResponse {
 }
 
 export async function getOverview(config: PublicConfig): Promise<WalletOverview> {
-  return json(await authenticated(config, (headers) => walletApi.overview.$get({}, { headers })))
+  const network = selectedNetwork(config)
+  return json(
+    await authenticated(config, (headers) =>
+      fetch(`${apiBasePath}/overview?network=${encodeURIComponent(network.id)}`, { headers }),
+    ),
+  )
 }
 
 export async function updateWallet(config: PublicConfig, input: UpdateWalletInput): Promise<void> {

@@ -1,10 +1,10 @@
 import { getOverview } from '../../api'
 import type { PublicConfig } from '../../auth'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-
-const overviewKey = ['wallet-overview'] as const
+import { selectedNetwork } from '../../environment'
 
 export function useWalletDashboard(config: PublicConfig) {
+  const overviewKey = ['wallet-overview', config.environment, selectedNetwork(config).id] as const
   const queryClient = useQueryClient()
   const overview = useQuery({
     queryKey: overviewKey,

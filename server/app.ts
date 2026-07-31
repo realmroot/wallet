@@ -5,6 +5,7 @@ import {
   inspectBudgetRequestSchema,
   type PaymentRequired,
   type SettlementResponse,
+  type WalletRuntime,
   paymentRequiredSchema,
   settlementResponseSchema,
   updateGrantSchema,
@@ -13,6 +14,7 @@ import {
 } from '../shared/contracts'
 import { authenticateAgent, authenticateHuman } from './auth'
 import {
+  getWalletDelegationExpiry,
   getWalletRuntime,
   requestTestnetFunds,
   verifyWalletRegistration,
@@ -65,6 +67,12 @@ import {
 import { verifySettlement } from './settlement'
 import { createX402Payment } from './signer'
 import { walletEnvironments } from './environment'
+import {
+  defaultWalletNetwork,
+  networkPaymentsEnabled,
+  walletNetworkDefinition,
+  walletNetworks,
+} from './network'
 import type { PaymentPayload } from '@x402/core/types'
 import {
   decodePaymentRequiredHeader,
@@ -93,7 +101,7 @@ export function createApp() {
       c.json({
         status: 'ok',
         environment: c.env.WALLET_ENVIRONMENT,
-        network: c.env.WALLET_NETWORK,
+        networks: walletNetworks(c.env).map((network) => network.id),
         signer: c.env.SIGNER_MODE,
       }),
     )
@@ -179,8 +187,18 @@ export function createHumanApi() {
           audience: c.env.OIDC_AUDIENCE,
           agentIssuer: c.env.OIDC_ISSUER,
           environment: c.env.WALLET_ENVIRONMENT,
-          network: c.env.WALLET_NETWORK,
-          paymentsEnabled: c.env.PAYMENTS_ENABLED === 'true',
+          defaultNetwork: defaultWalletNetwork(c.env).id,
+          networks: walletNetworks(c.env).map((network) => ({
+            id: network.id,
+            alias: network.alias,
+            name: network.name,
+            family: network.family,
+            asset: network.asset,
+            nativeSymbol: network.nativeSymbol,
+            explorerOrigin: network.explorerOrigin,
+            paymentsEnabled: networkPaymentsEnabled(c.env, network.id),
+            faucetAssets: network.faucetAssets,
+          })),
           cdpProjectId: c.env.CDP_PROJECT_ID ?? null,
         },
         200,
@@ -210,19 +228,22 @@ export function createHumanApi() {
     .get('/overview', async (c) => {
       const principal = await authenticateHuman(c.req.raw, c.env, 'wallet:read')
       const user = await getOrCreateUser(c.env.DB, principal)
-      const { runtime, delegationExpiresAt } = await getWalletRuntime(c.env, user)
-      if (
-        delegationExpiresAt !== undefined &&
-        delegationExpiresAt !== user.delegationExpiresAt &&
-        user.cdpUserId &&
-        user.walletAddress
-      ) {
-        await updateWallet(c.env.DB, user.id, {
-          cdpUserId: user.cdpUserId!,
-          address: user.walletAddress!,
-          delegationExpiresAt,
-        })
-        user.delegationExpiresAt = delegationExpiresAt
+      const network = selectedRequestNetwork(c)
+      const [runtime, delegationExpiresAt] = await Promise.all([
+        getWalletRuntime(c.env, user, network.id),
+        getWalletDelegationExpiry(c.env, user),
+      ])
+      if (delegationExpiresAt !== undefined && user.cdpUserId) {
+        const changed = user.accounts.filter(
+          (account) => account.delegationExpiresAt !== delegationExpiresAt,
+        )
+        if (changed.length > 0) {
+          await updateWallet(c.env.DB, user.id, {
+            cdpUserId: user.cdpUserId!,
+            accounts: user.accounts.map((account) => ({ ...account, delegationExpiresAt })),
+          })
+          for (const account of user.accounts) account.delegationExpiresAt = delegationExpiresAt
+        }
       }
       return c.json(await overview(c.env.DB, user, runtime), 200)
     })
@@ -246,7 +267,13 @@ export function createHumanApi() {
           actorSubject: principal.subject,
           action: 'wallet.registered',
           targetType: 'wallet',
-          targetId: input.address.toLowerCase(),
+          targetId: user.id,
+          metadata: {
+            accounts: input.accounts.map((account) => ({
+              family: account.family,
+              address: account.address,
+            })),
+          },
         })
         return c.body(null, 204)
       },
@@ -267,7 +294,7 @@ export function createHumanApi() {
           actorSubject: principal.subject,
           action: `wallet.${input.action}d`,
           targetType: 'wallet',
-          targetId: user.walletAddress ?? user.id,
+          targetId: user.id,
         })
         return c.body(null, 204)
       },
@@ -281,14 +308,18 @@ export function createHumanApi() {
         const principal = await authenticateHuman(c.req.raw, c.env, 'wallet:manage')
         const user = await getOrCreateUser(c.env.DB, principal)
         const result = await requestTestnetFunds(c.env, user, c.req.valid('json'))
+        const faucetInput = c.req.valid('json')
+        const account = user.accounts.find(
+          (candidate) => candidate.family === walletNetworkDefinition(faucetInput.network).family,
+        )
         await recordAuditEvent(c.env.DB, {
           userId: user.id,
           actorKind: 'human',
           actorSubject: principal.subject,
           action: 'wallet.faucet_requested',
           targetType: 'wallet',
-          targetId: user.walletAddress!,
-          metadata: { token: c.req.valid('json').token },
+          targetId: account?.id ?? user.id,
+          metadata: faucetInput,
         })
         return c.json({ transactionHash: result.transactionHash }, 200)
       },
@@ -447,21 +478,42 @@ function createAgentApi() {
         getAgentWalletRoute.operationId,
       )
       const state = await getAgentWalletState(c.env.DB, principal)
-      const walletRuntime =
-        state.user && state.grant ? await getWalletRuntime(c.env, state.user) : null
-      if (
-        walletRuntime?.delegationExpiresAt !== undefined &&
-        walletRuntime.delegationExpiresAt !== state.user?.delegationExpiresAt
-      ) {
-        await updateWallet(c.env.DB, state.user!.id, {
-          cdpUserId: state.user!.cdpUserId!,
-          address: state.user!.walletAddress!,
-          delegationExpiresAt: walletRuntime.delegationExpiresAt,
-        })
-        state.user!.delegationExpiresAt = walletRuntime.delegationExpiresAt
+      const [walletRuntimes, delegationExpiresAt]: [
+        WalletRuntime[],
+        string | null | undefined,
+      ] =
+        state.user && state.grant
+          ? await Promise.all([
+              Promise.all(
+                walletNetworks(c.env)
+                  .filter((network) => networkPaymentsEnabled(c.env, network.id))
+                  .map((network) => getWalletRuntime(c.env, state.user!, network.id)),
+              ),
+              getWalletDelegationExpiry(c.env, state.user),
+            ])
+          : [[], undefined]
+      if (delegationExpiresAt !== undefined && state.user?.cdpUserId) {
+        const changed = state.user.accounts.some(
+          (account) => account.delegationExpiresAt !== delegationExpiresAt,
+        )
+        if (changed) {
+          await updateWallet(c.env.DB, state.user.id, {
+            cdpUserId: state.user.cdpUserId!,
+            accounts: state.user.accounts.map((account) => ({
+              ...account,
+              delegationExpiresAt,
+            })),
+          })
+          for (const account of state.user.accounts) account.delegationExpiresAt = delegationExpiresAt
+        }
       }
       return c.json(
-        buildAgentWallet(c.env, state.user, state.grant, walletRuntime?.runtime ?? null),
+        buildAgentWallet(
+          c.env,
+          state.user,
+          state.grant,
+          walletRuntimes,
+        ),
         200,
       )
     })
@@ -502,9 +554,6 @@ function createAgentApi() {
         hasJsonBody,
       )
       const idempotencyKey = headers['idempotency-key']
-      if (c.env.PAYMENTS_ENABLED !== 'true') {
-        throw forbidden('Payments are disabled in this environment.')
-      }
       const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_BASE_URL)
       if (budget.status !== 'approved') {
         setBudgetRequestHeaders(c, budget)
@@ -512,6 +561,9 @@ function createAgentApi() {
       }
 
       const accepted = selectRequirement(paymentRequired, c.env)
+      if (!networkPaymentsEnabled(c.env, accepted.network)) {
+        throw forbidden(`Payments are disabled on ${accepted.network}.`)
+      }
       const requirementHash = await hashRequirement(paymentRequired)
       const reservation = await reservePayment(c.env.DB, {
         owner: principal.owner,
@@ -541,7 +593,8 @@ function createAgentApi() {
       try {
         const payload = await createX402Payment(c.env, {
           cdpUserId: reservation.user.cdpUserId!,
-          address: reservation.user.walletAddress as `0x${string}`,
+          account: reservation.account,
+          network: accepted.network,
           paymentRequired,
           idempotencyKey: reservation.paymentId,
         })
@@ -553,7 +606,12 @@ function createAgentApi() {
           action: 'payment.signed',
           targetType: 'payment',
           targetId: reservation.paymentId,
-          metadata: { amount: accepted.amount, resource: paymentRequired.resource.url },
+          metadata: {
+            amount: accepted.amount,
+            network: accepted.network,
+            family: reservation.account.family,
+            resource: paymentRequired.resource.url,
+          },
         })
         c.header('PAYMENT-SIGNATURE', encodePaymentSignatureHeader(payload))
         return c.json(
@@ -574,7 +632,12 @@ function createAgentApi() {
           action: 'payment.signing_failed',
           targetType: 'payment',
           targetId: reservation.paymentId,
-          metadata: { amount: accepted.amount, resource: paymentRequired.resource.url },
+          metadata: {
+            amount: accepted.amount,
+            network: accepted.network,
+            family: reservation.account.family,
+            resource: paymentRequired.resource.url,
+          },
         })
         throw error
       }
@@ -645,8 +708,14 @@ function agentApiDocument(env: Env) {
     servers: [{ url: '.' }],
     'x-wallet-environment': {
       name: env.WALLET_ENVIRONMENT,
-      network: env.WALLET_NETWORK,
-      paymentsEnabled: env.PAYMENTS_ENABLED === 'true',
+      defaultNetwork: defaultWalletNetwork(env).id,
+      networks: walletNetworks(env).map((network) => ({
+        id: network.id,
+        alias: network.alias,
+        name: network.name,
+        family: network.family,
+        paymentsEnabled: networkPaymentsEnabled(env, network.id),
+      })),
     },
     tags: [
       { name: 'wallet', description: 'Inspect the Wallet delegated to the current Agent.' },
@@ -798,16 +867,20 @@ function handleError(error: Error, c: Context<AppEnv>) {
 }
 
 function selectRequirement(paymentRequired: PaymentRequired, env: Env) {
-  const supportedAsset = walletAsset(env)
-  const accepted = paymentRequired.accepts.find(
-    (candidate) =>
-      candidate.scheme === 'exact' &&
-      candidate.network === env.WALLET_NETWORK &&
-      candidate.asset.toLowerCase() === supportedAsset.address.toLowerCase(),
+  const enabled = new Map<string, ReturnType<typeof walletNetworks>[number]>(
+    walletNetworks(env).map((network) => [network.id, network]),
   )
+  const accepted = paymentRequired.accepts.find((candidate) => {
+    const network = enabled.get(candidate.network)
+    if (!network || candidate.scheme !== 'exact') return false
+    const asset = walletAsset(network.id).address
+    return network.family === 'evm'
+      ? candidate.asset.toLowerCase() === asset.toLowerCase()
+      : candidate.asset === asset
+  })
   if (!accepted) {
     throw badRequest(
-      `No supported exact ${supportedAsset.symbol} payment requirement for ${env.WALLET_NETWORK}.`,
+      'No supported exact canonical USDC payment requirement was provided for an enabled network.',
     )
   }
   return accepted
@@ -831,15 +904,15 @@ function requiredConfiguration(env: Env) {
     'OIDC_ISSUER',
     'OIDC_CLIENT_ID',
     'OIDC_AUDIENCE',
-    'PAYMENTS_ENABLED',
     'WALLET_ENVIRONMENT',
-    'WALLET_NETWORK',
+    'DEFAULT_WALLET_NETWORK',
+    'WALLET_NETWORKS',
   ]
   return env.SIGNER_MODE === 'mock'
     ? [...common, 'MOCK_SIGNER_PRIVATE_KEY']
     : [
         ...common,
-        'WALLET_RPC_URL',
+        ...walletNetworks(env).map((network) => String(network.rpcBinding)),
         'CDP_PROJECT_ID',
         'CDP_API_KEY_ID',
         'CDP_API_KEY_SECRET',
@@ -855,7 +928,16 @@ function checkDatabaseReadiness(env: Env) {
   return env.DB.batch([
     env.DB.prepare('SELECT paused_at FROM wallet_user LIMIT 1'),
     env.DB.prepare('SELECT allowed_origins, allowed_recipients FROM agent_grant LIMIT 1'),
-    env.DB.prepare('SELECT transaction_hash, authorization_expires_at FROM payment LIMIT 1'),
+    env.DB.prepare('SELECT transaction_hash, authorization_expires_at, account_id FROM payment LIMIT 1'),
+    env.DB.prepare('SELECT family, address, delegation_expires_at FROM wallet_account LIMIT 1'),
     env.DB.prepare('SELECT id FROM audit_event LIMIT 1'),
   ])
+}
+
+function selectedRequestNetwork(c: Context<AppEnv>) {
+  const requested = c.req.query('network')
+  if (!requested) return defaultWalletNetwork(c.env)
+  const selected = walletNetworks(c.env).find((network) => network.id === requested)
+  if (!selected) throw badRequest('The requested Wallet network is not enabled in this environment.')
+  return selected
 }

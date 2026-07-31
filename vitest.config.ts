@@ -18,13 +18,22 @@ export default defineConfig({
           OIDC_ISSUER: 'https://fa.test/api/auth',
           OIDC_CLIENT_ID: 'agent-wallet-web',
           OIDC_AUDIENCE: 'https://wallet.test/api',
-          WALLET_NETWORK: 'eip155:84532',
-          PAYMENTS_ENABLED: 'true',
+          DEFAULT_WALLET_NETWORK: 'eip155:84532',
+          WALLET_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+          PAYMENT_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
           WALLET_ENVIRONMENT: 'production',
           SANDBOX_OIDC_AUDIENCE: 'https://wallet.test/api/sandbox',
-          SANDBOX_WALLET_NETWORK: 'eip155:84532',
-          SANDBOX_WALLET_RPC_URL: 'https://sepolia.base.org',
-          SANDBOX_PAYMENTS_ENABLED: 'true',
+          SANDBOX_DEFAULT_WALLET_NETWORK: 'eip155:84532',
+          SANDBOX_WALLET_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+          SANDBOX_PAYMENT_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+          BASE_RPC_URL: 'https://mainnet.base.org',
+          BASE_SEPOLIA_RPC_URL: 'https://sepolia.base.org',
+          POLYGON_RPC_URL: 'https://polygon.drpc.org',
+          ARBITRUM_RPC_URL: 'https://arb1.arbitrum.io/rpc',
+          WORLD_RPC_URL: 'https://worldchain-mainnet.g.alchemy.com/public',
+          WORLD_SEPOLIA_RPC_URL: 'https://worldchain-sepolia.g.alchemy.com/public',
+          SOLANA_RPC_URL: 'https://api.mainnet-beta.solana.com',
+          SOLANA_DEVNET_RPC_URL: 'https://api.devnet.solana.com',
           SIGNER_MODE: 'mock',
           MOCK_SIGNER_PRIVATE_KEY: mockSignerPrivateKey,
           OIDC_JWKS: oidcJwks,
@@ -36,6 +45,8 @@ export default defineConfig({
             const projectId = '11111111-1111-4111-8111-111111111111'
             const signingPath =
               '/platform/v2/embedded-wallet-api/end-users/custom-auth-user/evm/sign/typed-data'
+            const solanaSigningPath =
+              '/platform/v2/embedded-wallet-api/end-users/custom-auth-user/solana/sign/transaction'
             const delegationMatch = url.pathname.match(
               /^\/platform\/v2\/embedded-wallet-api\/end-users\/([^/]+)\/delegation$/,
             )
@@ -69,6 +80,28 @@ export default defineConfig({
                 return cdpTestError(400, 'invalid_request', 'Unexpected signing payload.')
               }
               return Response.json({ signature: `0x${'ab'.repeat(65)}` })
+            }
+            if (url.pathname === solanaSigningPath && request.method === 'POST') {
+              if (url.searchParams.get('projectID') !== projectId) {
+                return cdpTestError(400, 'invalid_request', 'projectID is required.')
+              }
+              if (
+                request.headers.get('X-Idempotency-Key') !==
+                'solana-payment-request-12345678'
+              ) {
+                return cdpTestError(400, 'invalid_request', 'X-Idempotency-Key is required.')
+              }
+              const body = await request.json<{
+                address?: string
+                transaction?: string
+              }>()
+              if (
+                body.address !== '11111111111111111111111111111111' ||
+                body.transaction !== 'AQID'
+              ) {
+                return cdpTestError(400, 'invalid_request', 'Unexpected signing payload.')
+              }
+              return Response.json({ signedTransaction: 'BAUG' })
             }
             return cdpTestError(404, 'not_found', 'Unexpected CDP test request.')
           }

@@ -9,7 +9,7 @@ const walletSecret =
   'MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgGisXdi7FbCRHDc09izR4eQWlcm/aAcW/xIm0dfzdriKhRANCAARK/U4JigocQatDwGK9Bq/mXcYeCc9VrsBn0LUrrH/gQniElv3dbd1rJpsYawFJLkP5E3ObpoXmmpVlblqKeaun'
 
 describe('CDP SDK custom-auth boundary', () => {
-  it('sends the project ID for delegation lookup and typed-data signing', async () => {
+  it('sends the project ID for delegation lookup and delegated signing', async () => {
     const cdp = createTestCdpClient()
 
     await expect(
@@ -39,6 +39,18 @@ describe('CDP SDK custom-auth boundary', () => {
       }),
     ).resolves.toEqual({
       signature: `0x${'ab'.repeat(65)}`,
+    })
+
+    await expect(
+      cdp.endUser.signSolanaTransaction({
+        userId: 'custom-auth-user',
+        projectId,
+        address: '11111111111111111111111111111111',
+        transaction: 'AQID',
+        idempotencyKey: 'solana-payment-request-12345678',
+      }),
+    ).resolves.toEqual({
+      signedTransaction: 'BAUG',
     })
   })
 

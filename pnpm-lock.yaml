@@ -11,7 +11,7 @@ overrides:
 
 patchedDependencies:
   '@coinbase/cdp-sdk@1.54.0':
-    hash: b1dc14b8ccf8899be6d1452b620f54a769cc020bc610de33c1f7f4fea495b889
+    hash: aec9d4a6dd146c85bb8c8fca092063eba68c9d6a24b1dab2982c4744e17acafe
     path: patches/@coinbase__cdp-sdk@1.54.0.patch
 
 importers:
@@ -29,7 +29,7 @@ importers:
         version: 0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(use-sync-external-store@1.6.0(react@19.2.5))(utf-8-validate@6.0.6)(zod@4.4.3))(@coinbase/cdp-hooks@0.0.120(@coinbase/cdp-core@0.0.120(@types/react@19.2.14)(bufferutil@4.1.0)(react@19.2.5)(typescript@6.0.3)(use-sync-external-store@1.6.0(react@19.2.5))(utf-8-validate@6.0.6)(zod@4.4.3))(react@19.2.5))(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       '@coinbase/cdp-sdk':
         specifier: 1.54.0
-        version: 1.54.0(patch_hash=b1dc14b8ccf8899be6d1452b620f54a769cc020bc610de33c1f7f4fea495b889)(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+        version: 1.54.0(patch_hash=aec9d4a6dd146c85bb8c8fca092063eba68c9d6a24b1dab2982c4744e17acafe)(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/svm@2.20.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3)))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       '@fontsource/dm-mono':
         specifier: ^5.3.0
         version: 5.3.0
@@ -51,6 +51,9 @@ importers:
       '@radix-ui/react-dialog':
         specifier: ^1.1.23
         version: 1.1.23(@types/react-dom@19.2.3(@types/react@19.2.14))(@types/react@19.2.14)(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+      '@solana/kit':
+        specifier: 5.5.1
+        version: 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       '@tanstack/react-query':
         specifier: ^5.101.4
         version: 5.101.4(react@19.2.5)
@@ -63,6 +66,9 @@ importers:
       '@x402/hono':
         specifier: 2.20.0
         version: 2.20.0(bufferutil@4.1.0)(hono@4.12.32)(typescript@6.0.3)(utf-8-validate@6.0.6)
+      '@x402/svm':
+        specifier: 2.20.0
+        version: 2.20.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3))
       hono:
         specifier: 4.12.32
         version: 4.12.32
@@ -1219,10 +1225,21 @@ packages:
     resolution: {integrity: sha512-P1Cz1dWaFfR4IR+U13mqqiGsLFf1KbayybWwdd2vfctdV6hDpUkgCY0nKOLLTMSoRd/jJNjtbqzf13K8DCCXQw==}
     engines: {node: '>=18'}
 
+  '@solana-program/compute-budget@0.11.0':
+    resolution: {integrity: sha512-7f1ePqB/eURkTwTOO9TNIdUXZcyrZoX3Uy2hNo7cXMfNhPFWp9AVgIyRNBc2jf15sdUa9gNpW+PfP2iV8AYAaw==}
+    peerDependencies:
+      '@solana/kit': ^5.0
+
   '@solana-program/system@0.10.0':
     resolution: {integrity: sha512-Go+LOEZmqmNlfr+Gjy5ZWAdY5HbYzk2RBewD9QinEU/bBSzpFfzqDRT55JjFRBGJUvMgf3C2vfXEGT4i8DSI4g==}
     peerDependencies:
       '@solana/kit': ^5.0
+
+  '@solana-program/token-2022@0.6.1':
+    resolution: {integrity: sha512-Ex02cruDMGfBMvZZCrggVR45vdQQSI/unHVpt/7HPt/IwFYB4eTlXtO8otYZyqV/ce5GqZ8S6uwyRf0zy6fdbA==}
+    peerDependencies:
+      '@solana/kit': ^5.0
+      '@solana/sysvars': ^5.0
 
   '@solana-program/token@0.9.0':
     resolution: {integrity: sha512-vnZxndd4ED4Fc56sw93cWZ2djEeeOFxtaPS8SPf5+a+JZjKA/EnKqzbE1y04FuMhIVrLERQ8uR8H2h72eZzlsA==}
@@ -1727,6 +1744,11 @@ packages:
     peerDependenciesMeta:
       '@x402/paywall':
         optional: true
+
+  '@x402/svm@2.20.0':
+    resolution: {integrity: sha512-gyrpQUh6RxwK9tLZ7iaji5BZE9JJ9gzvX91vnrDyjjanp/Sp3cOH+fhXewzKkhUkEwrY8BOIocnGbAJmXHN4jQ==}
+    peerDependencies:
+      '@solana/kit': '>=5.1.0'
 
   abitype@1.0.6:
     resolution: {integrity: sha512-MMSqYh4+C/aVqI2RQaWqbvI4Kxo5cQV40WQ4QFtDnNzCkqChm8MuENhElmynZlO0qUy/ObkEUaXtKqYnx1Kp3A==}
@@ -2843,7 +2865,7 @@ snapshots:
       - '@types/react-dom'
       - react-dom
 
-  '@coinbase/cdp-sdk@1.54.0(patch_hash=b1dc14b8ccf8899be6d1452b620f54a769cc020bc610de33c1f7f4fea495b889)(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)':
+  '@coinbase/cdp-sdk@1.54.0(patch_hash=aec9d4a6dd146c85bb8c8fca092063eba68c9d6a24b1dab2982c4744e17acafe)(@x402/core@2.20.0)(@x402/evm@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/extensions@2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@x402/svm@2.20.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3)))(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)':
     dependencies:
       '@solana-program/system': 0.10.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))
       '@solana-program/token': 0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))
@@ -2861,6 +2883,7 @@ snapshots:
       '@x402/core': 2.20.0
       '@x402/evm': 2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
       '@x402/extensions': 2.20.0(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+      '@x402/svm': 2.20.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3))
     transitivePeerDependencies:
       - bufferutil
       - debug
@@ -3568,9 +3591,18 @@ snapshots:
 
   '@sindresorhus/is@7.2.0': {}
 
+  '@solana-program/compute-budget@0.11.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))':
+    dependencies:
+      '@solana/kit': 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+
   '@solana-program/system@0.10.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))':
     dependencies:
       '@solana/kit': 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+
+  '@solana-program/token-2022@0.6.1(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3))':
+    dependencies:
+      '@solana/kit': 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+      '@solana/sysvars': 5.5.1(typescript@6.0.3)
 
   '@solana-program/token@0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))':
     dependencies:
@@ -4190,6 +4222,16 @@ snapshots:
       - ethers
       - typescript
       - utf-8-validate
+
+  '@x402/svm@2.20.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3))':
+    dependencies:
+      '@solana-program/compute-budget': 0.11.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))
+      '@solana-program/token': 0.9.0(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))
+      '@solana-program/token-2022': 0.6.1(@solana/kit@5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6))(@solana/sysvars@5.5.1(typescript@6.0.3))
+      '@solana/kit': 5.5.1(bufferutil@4.1.0)(typescript@6.0.3)(utf-8-validate@6.0.6)
+      '@x402/core': 2.20.0
+    transitivePeerDependencies:
+      - '@solana/sysvars'
 
   abitype@1.0.6(typescript@6.0.3)(zod@3.25.76):
     optionalDependencies:

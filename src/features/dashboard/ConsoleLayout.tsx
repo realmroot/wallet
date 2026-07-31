@@ -1,6 +1,10 @@
 import type { PublicConfig } from '../../auth'
 import { beginEnvironmentSwitch, logout } from '../../auth'
-import { networkName, type WalletEnvironment } from '../../environment'
+import {
+  networkPath,
+  selectedNetwork,
+  type WalletEnvironment,
+} from '../../environment'
 import { TransitionScreen } from '../../components/TransitionScreen'
 import {
   Activity,
@@ -32,6 +36,7 @@ export function ConsoleLayout({
   children: ReactNode
 }) {
   const [pathname] = useLocation()
+  const network = selectedNetwork(config)
   const [switchingTo, setSwitchingTo] = useState<WalletEnvironment | null>(null)
   const [switchError, setSwitchError] = useState<string | null>(null)
   const switchEnvironment = (
@@ -45,7 +50,11 @@ export function ConsoleLayout({
     event.preventDefault()
     setSwitchError(null)
     setSwitchingTo(target)
-    void beginEnvironmentSwitch(config, target, pathname).catch((cause: unknown) => {
+    void beginEnvironmentSwitch(
+      config,
+      target,
+      environmentReturnTo(network.alias, target, pathname),
+    ).catch((cause: unknown) => {
       setSwitchingTo(null)
       setSwitchError(cause instanceof Error ? cause.message : 'Environment switch failed.')
     })
@@ -82,8 +91,22 @@ export function ConsoleLayout({
             Sandbox
           </a>
         </div>
-        <div className="sidebar-network">
-          <span /> {networkName(config.network)}
+        <div className="sidebar-network-context">
+          <span className="sidebar-context-label">Network view</span>
+          <label className="sidebar-network">
+            <span aria-hidden="true" />
+            <select
+              aria-label="Network view"
+              value={network.id}
+              onChange={(event) => {
+                location.assign(networkPath(config, event.target.value, pathname))
+              }}
+            >
+              {config.networks.map((candidate) => (
+                <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
+              ))}
+            </select>
+          </label>
         </div>
         <nav className="sidebar-nav" aria-label="Wallet navigation">
           {navigation.map((item) => {
@@ -155,6 +178,23 @@ export function ConsoleLayout({
       {switchError ? <div className="environment-switch-error" role="alert">{switchError}</div> : null}
     </div>
   )
+}
+
+function environmentReturnTo(
+  alias: string,
+  target: WalletEnvironment,
+  page: string,
+) {
+  const targetAlias =
+    target === 'sandbox'
+      ? { base: null, world: 'world-sepolia', solana: 'solana-devnet' }[alias]
+      : {
+          'base-sepolia': null,
+          'world-sepolia': 'world',
+          'solana-devnet': 'solana',
+        }[alias]
+  const chain = targetAlias ? `/chains/${targetAlias}` : ''
+  return `${chain}${page === '/' ? '' : page}` || '/'
 }
 
 export function PageHeading({

@@ -9,13 +9,14 @@ import { TransitionScreen } from '../components/TransitionScreen'
 import { useWalletDashboard } from '../features/dashboard/use-wallet-dashboard'
 import { useState } from 'react'
 import { Link, useLocation } from 'wouter'
-import { networkName } from '../environment'
+import { selectedNetwork } from '../environment'
 
 export function DashboardPage({ config }: { config: PublicConfig }) {
   const dashboard = useWalletDashboard(config)
   const [, navigate] = useLocation()
   const [copied, setCopied] = useState(false)
   const overview = dashboard.overview.data
+  const network = selectedNetwork(config)
   const error = dashboard.overview.error ?? dashboard.action.error
 
   async function copyAddress(address: string) {
@@ -34,9 +35,9 @@ export function DashboardPage({ config }: { config: PublicConfig }) {
         eyebrow="Control plane"
         title="Overview"
         description="Your wallet, delegated budgets, and recent money movement at a glance."
-        action={<span className="network-badge"><span /> {networkName(config.network)}</span>}
+        action={<span className="network-badge"><span /> {network.name}</span>}
       />
-      {!config.paymentsEnabled ? (
+      {!network.paymentsEnabled ? (
         <div className="notice" role="status">
           Production payments are not enabled yet. Wallet setup and policy review remain available.
         </div>

@@ -1,5 +1,10 @@
 import { type PublicConfig, walletApi } from './api-client'
-import { walletEnvironment, type WalletEnvironment } from './environment'
+import {
+  appBasePath,
+  routerBasePath,
+  walletEnvironment,
+  type WalletEnvironment,
+} from './environment'
 
 export type { PublicConfig } from './api-client'
 
@@ -131,7 +136,9 @@ async function continueEnvironmentSession(
 }
 
 export function beginLogin(config: PublicConfig, returnTo = '/') {
-  loginRedirect ??= startLogin(config, returnTo, prefix).catch((error: unknown) => {
+  const chainBase = routerBasePath.slice(appBasePath.length)
+  const routedReturnTo = `${chainBase}${returnTo === '/' ? '' : returnTo}` || '/'
+  loginRedirect ??= startLogin(config, routedReturnTo, prefix).catch((error: unknown) => {
     loginRedirect = null
     throw error
   })

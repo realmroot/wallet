@@ -9,10 +9,12 @@ import type {
   UpdateGrantInput,
   WalletRuntime,
   WalletOverview,
+  WalletAccount,
   WalletUser,
 } from '../shared/contracts'
 import type { AgentPrincipal, HumanPrincipal } from './auth'
 import { conflict, forbidden, notFound } from './errors'
+import { walletNetworkDefinition } from './network'
 
 interface UserRow {
   id: string
@@ -20,9 +22,14 @@ interface UserRow {
   subject: string
   email: string | null
   cdp_user_id: string | null
-  wallet_address: string | null
-  delegation_expires_at: string | null
   paused_at: string | null
+}
+
+interface AccountRow {
+  id: string
+  family: WalletAccount['family']
+  address: string
+  delegation_expires_at: string | null
 }
 
 interface GrantRow {
@@ -58,7 +65,7 @@ interface BudgetRequestRow {
 
 export async function getOrCreateUser(db: D1Database, principal: HumanPrincipal): Promise<WalletUser> {
   const found = await findUser(db, principal.issuer, principal.subject)
-  if (found) return toUser(found)
+  if (found) return hydrateUser(db, found)
   const id = crypto.randomUUID()
   const now = new Date().toISOString()
   await db
@@ -74,8 +81,7 @@ export async function getOrCreateUser(db: D1Database, principal: HumanPrincipal)
     subject: principal.subject,
     email: principal.email,
     cdpUserId: null,
-    walletAddress: null,
-    delegationExpiresAt: null,
+    accounts: [],
     pausedAt: null,
   }
 }
@@ -83,8 +89,7 @@ export async function getOrCreateUser(db: D1Database, principal: HumanPrincipal)
 export async function findUser(db: D1Database, issuer: string, subject: string) {
   return db
     .prepare(
-      `SELECT id, issuer, subject, email, cdp_user_id, wallet_address,
-              delegation_expires_at, paused_at
+      `SELECT id, issuer, subject, email, cdp_user_id, paused_at
        FROM wallet_user WHERE issuer = ? AND subject = ?`,
     )
     .bind(issuer, subject)
@@ -108,12 +113,13 @@ export async function overview(
       .all<GrantRow>(),
     db
       .prepare(
-        `SELECT id, amount, pay_to, resource, status, transaction_hash, error, created_at
+        `SELECT id, network, amount, pay_to, resource, status, transaction_hash, error, created_at
          FROM payment WHERE user_id = ? ORDER BY created_at DESC LIMIT 50`,
       )
       .bind(user.id)
       .all<{
         id: string
+        network: string
         amount: string
         pay_to: string
         resource: string
@@ -145,6 +151,7 @@ export async function overview(
     grants: grants.results.map(toGrant),
     payments: payments.results.map((row) => ({
       id: row.id,
+      network: row.network,
       amount: row.amount,
       payTo: row.pay_to,
       resource: row.resource,
@@ -182,27 +189,53 @@ export async function getAgentWalletState(db: D1Database, principal: AgentPrinci
     )
     .bind(row.id, principal.agent.issuer, principal.agent.subject)
     .first<GrantRow & { period_started_at: string }>()
-  if (!grant) return { user: toUser(row), grant: null }
+  if (!grant) return { user: await hydrateUser(db, row), grant: null }
 
   if (shouldResetPeriod(grant.period_kind, grant.period_started_at)) {
     grant.period_spent = '0'
   }
-  return { user: toUser(row), grant: toGrant(grant) }
+  return { user: await hydrateUser(db, row), grant: toGrant(grant) }
 }
 
 export async function updateWallet(
   db: D1Database,
   userId: string,
-  input: { cdpUserId: string; address: string; delegationExpiresAt: string | null },
+  input: {
+    cdpUserId: string
+    accounts: Array<{
+      family: WalletAccount['family']
+      address: string
+      delegationExpiresAt: string | null
+    }>
+  },
 ) {
-  await db
-    .prepare(
-      `UPDATE wallet_user
-       SET cdp_user_id = ?, wallet_address = ?, delegation_expires_at = ?, updated_at = ?
-       WHERE id = ?`,
-    )
-    .bind(input.cdpUserId, input.address.toLowerCase(), input.delegationExpiresAt, new Date().toISOString(), userId)
-    .run()
+  const now = new Date().toISOString()
+  await db.batch([
+    db
+      .prepare('UPDATE wallet_user SET cdp_user_id = ?, updated_at = ? WHERE id = ?')
+      .bind(input.cdpUserId, now, userId),
+    ...input.accounts.map((account) =>
+      db
+        .prepare(
+          `INSERT INTO wallet_account (
+             id, user_id, family, address, delegation_expires_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id, family) DO UPDATE SET
+             address = excluded.address,
+             delegation_expires_at = excluded.delegation_expires_at,
+             updated_at = excluded.updated_at`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          userId,
+          account.family,
+          normalizeAddress(account.family, account.address),
+          account.delegationExpiresAt,
+          now,
+          now,
+        ),
+    ),
+  ])
 }
 
 export async function actOnWallet(
@@ -414,7 +447,7 @@ export async function decideBudgetRequest(
         input.periodLimit,
         periodStart(input.periodKind),
         JSON.stringify(input.allowedOrigins),
-        JSON.stringify(input.allowedRecipients.map((value) => value.toLowerCase())),
+        JSON.stringify(input.allowedRecipients.map(normalizePolicyAddress)),
         input.expiresAt,
         now,
         now,
@@ -477,7 +510,7 @@ export async function updateGrantPolicy(
       input.periodKind,
       input.periodLimit,
       JSON.stringify(input.allowedOrigins),
-      JSON.stringify(input.allowedRecipients.map((value) => value.toLowerCase())),
+      JSON.stringify(input.allowedRecipients.map(normalizePolicyAddress)),
       input.expiresAt,
       new Date().toISOString(),
       grantId,
@@ -523,9 +556,15 @@ export async function reservePayment(
 ) {
   const user = await findUser(db, input.owner.issuer, input.owner.subject)
   if (!user) throw forbidden('The Agent owner has no Wallet account.')
-  if (!user.cdp_user_id || !user.wallet_address) throw forbidden('The Wallet account is not provisioned.')
+  if (!user.cdp_user_id) throw forbidden('The Wallet account is not provisioned.')
+  const family = walletNetworkDefinition(input.network).family
+  const account = await findAccount(db, user.id, family)
+  if (!account) throw forbidden(`The Wallet has no ${family === 'evm' ? 'EVM' : 'Solana'} account.`)
   if (user.paused_at) throw forbidden('The Wallet is paused.')
-  if (!user.delegation_expires_at || new Date(user.delegation_expires_at).getTime() <= Date.now()) {
+  if (
+    !account.delegation_expires_at ||
+    new Date(account.delegation_expires_at).getTime() <= Date.now()
+  ) {
     throw forbidden('CDP delegated signing is not active.')
   }
   const grant = await db
@@ -559,7 +598,8 @@ export async function reservePayment(
     throw forbidden('The merchant is not allowed by this Wallet grant.')
   }
   const allowedRecipients = parseStringArray(grant.allowed_recipients)
-  if (allowedRecipients.length > 0 && !allowedRecipients.includes(input.payTo.toLowerCase())) {
+  const normalizedPayTo = normalizeAddress(family, input.payTo)
+  if (allowedRecipients.length > 0 && !allowedRecipients.includes(normalizedPayTo)) {
     throw forbidden('The payment recipient is not allowed by this Wallet grant.')
   }
 
@@ -589,7 +629,8 @@ export async function reservePayment(
     return {
       kind: 'reserved' as const,
       paymentId: existing.id,
-      user: toUser(user),
+      user: await hydrateUser(db, user),
+      account: toAccount(account),
       grantId: grant.id,
       replayed: true,
     }
@@ -658,21 +699,22 @@ export async function reservePayment(
       db
         .prepare(
           `INSERT INTO payment (
-             id, user_id, grant_id, idempotency_key, requirement_hash, network,
+             id, user_id, grant_id, account_id, idempotency_key, requirement_hash, network,
              asset, amount, pay_to, resource, status, reservation_expires_at,
              created_at, updated_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'reserved', ?, ?, ?)`,
         )
         .bind(
           paymentId,
           user.id,
           grant.id,
+          account.id,
           input.idempotencyKey,
           input.requirementHash,
           input.network,
           input.asset,
           input.amount,
-          input.payTo.toLowerCase(),
+          normalizedPayTo,
           input.resource,
           reservationExpiresAt,
           now,
@@ -700,7 +742,8 @@ export async function reservePayment(
   return {
     kind: 'reserved' as const,
     paymentId,
-    user: toUser(user),
+    user: await hydrateUser(db, user),
+    account: toAccount(account),
     grantId: grant.id,
     replayed: false,
   }
@@ -808,19 +851,25 @@ export async function cleanupExpiredReservations(db: D1Database) {
 export async function listExpiredSignedPayments(db: D1Database) {
   return db
     .prepare(
-      `SELECT id, user_id, grant_id, amount, asset, payment_payload
-       FROM payment
-       WHERE status = 'signed' AND authorization_expires_at <= ?
-       ORDER BY authorization_expires_at LIMIT 50`,
+      `SELECT p.id, p.user_id, p.grant_id, p.account_id, p.network, p.amount,
+              p.asset, p.payment_payload, p.created_at, a.address AS wallet_address
+       FROM payment p
+       JOIN wallet_account a ON a.id = p.account_id
+       WHERE p.status = 'signed' AND p.authorization_expires_at <= ?
+       ORDER BY p.authorization_expires_at LIMIT 50`,
     )
     .bind(new Date().toISOString())
     .all<{
       id: string
       user_id: string
       grant_id: string
+      account_id: string
+      network: string
       amount: string
       asset: string
       payment_payload: string
+      created_at: string
+      wallet_address: string
     }>()
 }
 
@@ -852,15 +901,20 @@ export async function releaseExpiredSignedPayment(
   ])
 }
 
-export async function markExpiredPaymentSettled(db: D1Database, paymentId: string) {
+export async function markExpiredPaymentSettled(
+  db: D1Database,
+  paymentId: string,
+  transactionHash?: string,
+) {
   const now = new Date().toISOString()
   await db
     .prepare(
       `UPDATE payment
-       SET status = 'settled', settled_at = ?, error = NULL, updated_at = ?
+       SET status = 'settled', transaction_hash = COALESCE(?, transaction_hash),
+           settled_at = ?, error = NULL, updated_at = ?
        WHERE id = ? AND status = 'signed'`,
     )
-    .bind(now, now, paymentId)
+    .bind(transactionHash ?? null, now, now, paymentId)
     .run()
 }
 
@@ -872,9 +926,10 @@ export async function getPaymentForSettlement(
   const payment = await db
     .prepare(
       `SELECT p.id, p.user_id, p.status, p.network, p.asset, p.amount, p.pay_to, p.resource,
-              p.transaction_hash, u.wallet_address
+              p.transaction_hash, a.address AS wallet_address
        FROM payment p
-       JOIN wallet_user u ON u.id = p.user_id
+      JOIN wallet_user u ON u.id = p.user_id
+       JOIN wallet_account a ON a.id = p.account_id
        JOIN agent_grant g ON g.id = p.grant_id
        WHERE p.id = ?
          AND u.issuer = ? AND u.subject = ?
@@ -1091,22 +1146,53 @@ function paymentAuthorizationExpiry(payload: unknown) {
   if (!payload || typeof payload !== 'object') return null
   const authorization = (payload as { payload?: unknown }).payload
   if (!authorization || typeof authorization !== 'object') return null
+  if (typeof (authorization as { transaction?: unknown }).transaction === 'string') {
+    return new Date(Date.now() + 2 * 60 * 1000).toISOString()
+  }
   const validBefore = (authorization as { authorization?: { validBefore?: unknown } }).authorization
     ?.validBefore
   if (typeof validBefore !== 'string' || !/^\d+$/.test(validBefore)) return null
   return new Date(Number(validBefore) * 1000).toISOString()
 }
 
-function toUser(row: UserRow): WalletUser {
+function rowToUser(row: UserRow): Omit<WalletUser, 'accounts'> {
   return {
     id: row.id,
     issuer: row.issuer,
     subject: row.subject,
     email: row.email,
     cdpUserId: row.cdp_user_id,
-    walletAddress: row.wallet_address,
-    delegationExpiresAt: row.delegation_expires_at,
     pausedAt: row.paused_at,
+  }
+}
+
+async function hydrateUser(db: D1Database, row: UserRow): Promise<WalletUser> {
+  const accounts = await db
+    .prepare(
+      `SELECT id, family, address, delegation_expires_at
+       FROM wallet_account WHERE user_id = ? ORDER BY family`,
+    )
+    .bind(row.id)
+    .all<AccountRow>()
+  return { ...rowToUser(row), accounts: accounts.results.map(toAccount) }
+}
+
+async function findAccount(db: D1Database, userId: string, family: WalletAccount['family']) {
+  return db
+    .prepare(
+      `SELECT id, family, address, delegation_expires_at
+       FROM wallet_account WHERE user_id = ? AND family = ?`,
+    )
+    .bind(userId, family)
+    .first<AccountRow>()
+}
+
+function toAccount(row: AccountRow): WalletAccount {
+  return {
+    id: row.id,
+    family: row.family,
+    address: row.address,
+    delegationExpiresAt: row.delegation_expires_at,
   }
 }
 
@@ -1136,6 +1222,14 @@ function parseStringArray(value: string) {
     throw new Error('Stored Wallet policy is invalid.')
   }
   return parsed as string[]
+}
+
+function normalizePolicyAddress(value: string) {
+  return value.startsWith('0x') ? value.toLowerCase() : value
+}
+
+function normalizeAddress(family: WalletAccount['family'], value: string) {
+  return family === 'evm' ? value.toLowerCase() : value
 }
 
 async function findBudgetRequest(db: D1Database, requestId: string) {

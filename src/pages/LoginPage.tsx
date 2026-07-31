@@ -51,7 +51,7 @@ export function LoginPage({
           <h1>Give Agents a budget.<br /><em>Keep the keys.</em></h1>
           <p>
             One secure wallet for your account. Explicit, revocable spending boundaries for every Agent.
-            Standard x402 payments on Base.
+            Standard x402 payments across EVM and Solana networks.
           </p>
           <button
             className="primary-button login-cta"
@@ -81,7 +81,7 @@ export function LoginPage({
             <small>Available balance</small>
             <strong>2,480.00 <span>USDC</span></strong>
             <div className="preview-wallet-line">
-              <span /> {networkName(config.network)} · Protected
+              <span /> {networkName(config.defaultNetwork)} · Protected
             </div>
           </div>
           <div className="preview-agent">
