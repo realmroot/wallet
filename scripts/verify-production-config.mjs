@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises'
+import { parse } from 'smol-toml'
 
-const config = JSON.parse(
-  await readFile(new URL('../wrangler.jsonc', import.meta.url), 'utf8'),
-)
+const config = parse(await readFile(new URL('../wrangler.toml', import.meta.url), 'utf8'))
 const errors = []
 const variables = config.vars ?? {}
 const productionDatabase = config.d1_databases?.find((binding) => binding.binding === 'DB')
@@ -10,18 +9,13 @@ const sandboxDatabase = config.d1_databases?.find((binding) => binding.binding =
 
 for (const name of [
   'APP_ORIGIN',
-  'APP_BASE_URL',
   'OIDC_ISSUER',
-  'OIDC_AUDIENCE',
-  'SANDBOX_OIDC_AUDIENCE',
   'BASE_RPC_URL',
   'BASE_SEPOLIA_RPC_URL',
   'POLYGON_RPC_URL',
   'ARBITRUM_RPC_URL',
   'WORLD_RPC_URL',
   'WORLD_SEPOLIA_RPC_URL',
-  'SOLANA_RPC_URL',
-  'SOLANA_DEVNET_RPC_URL',
 ]) {
   const value = variables[name]
   let url
@@ -41,23 +35,11 @@ for (const name of [
 if (variables.APP_ORIGIN && new URL(variables.APP_ORIGIN).origin !== variables.APP_ORIGIN) {
   errors.push('APP_ORIGIN must be an origin without a path or trailing slash.')
 }
-if (variables.APP_BASE_URL !== variables.APP_ORIGIN) {
-  errors.push('APP_BASE_URL must use the default production origin.')
-}
 if (variables.OIDC_ISSUER?.endsWith('/')) {
   errors.push('OIDC_ISSUER must not have a trailing slash.')
 }
 if (variables.SIGNER_MODE !== 'cdp') {
   errors.push('SIGNER_MODE must be cdp.')
-}
-if (variables.DEFAULT_WALLET_NETWORK !== 'eip155:8453') {
-  errors.push('DEFAULT_WALLET_NETWORK must be Base Mainnet (eip155:8453).')
-}
-if (variables.SANDBOX_DEFAULT_WALLET_NETWORK !== 'eip155:84532') {
-  errors.push('SANDBOX_DEFAULT_WALLET_NETWORK must be Base Sepolia (eip155:84532).')
-}
-if (variables.WALLET_ENVIRONMENT !== 'production') {
-  errors.push('WALLET_ENVIRONMENT must be production for the default API.')
 }
 const productionNetworks = new Set(variables.WALLET_NETWORKS?.split(',') ?? [])
 for (const network of [
@@ -72,6 +54,12 @@ for (const network of [
 if (variables.PAYMENT_NETWORKS !== '') {
   errors.push('Production PAYMENT_NETWORKS must remain empty until mainnet acceptance.')
 }
+if (variables.WALLET_NETWORKS?.split(',', 1)[0] !== 'eip155:8453') {
+  errors.push('The first production Wallet network must be Base Mainnet (eip155:8453).')
+}
+if (variables.SANDBOX_WALLET_NETWORKS?.split(',', 1)[0] !== 'eip155:84532') {
+  errors.push('The first Sandbox Wallet network must be Base Sepolia (eip155:84532).')
+}
 const sandboxNetworks = new Set(variables.SANDBOX_WALLET_NETWORKS?.split(',') ?? [])
 const sandboxPaymentNetworks = new Set(variables.SANDBOX_PAYMENT_NETWORKS?.split(',') ?? [])
 for (const network of [
@@ -82,14 +70,22 @@ for (const network of [
   if (!sandboxNetworks.has(network)) errors.push(`SANDBOX_WALLET_NETWORKS must include ${network}.`)
   if (!sandboxPaymentNetworks.has(network)) errors.push(`SANDBOX_PAYMENT_NETWORKS must include ${network}.`)
 }
-if (variables.OIDC_AUDIENCE !== `${variables.APP_ORIGIN}/api`) {
-  errors.push('OIDC_AUDIENCE must use the default production API URL.')
-}
-if (variables.SANDBOX_OIDC_AUDIENCE !== `${variables.APP_ORIGIN}/api/sandbox`) {
-  errors.push('SANDBOX_OIDC_AUDIENCE must use the sandbox API URL.')
-}
 if (typeof variables.OIDC_CLIENT_ID !== 'string' || variables.OIDC_CLIENT_ID.trim() === '') {
   errors.push('OIDC_CLIENT_ID must be configured.')
+}
+if (typeof variables.CDP_PROJECT_ID !== 'string' || variables.CDP_PROJECT_ID.trim() === '') {
+  errors.push('CDP_PROJECT_ID must be configured as a public Wrangler variable.')
+}
+if (typeof variables.CDP_API_KEY_ID !== 'string' || variables.CDP_API_KEY_ID.trim() === '') {
+  errors.push('CDP_API_KEY_ID must be configured as a public Wrangler variable.')
+}
+for (const secret of [
+  'CDP_API_KEY_SECRET',
+  'CDP_WALLET_SECRET',
+  'SOLANA_RPC_URL',
+  'SOLANA_DEVNET_RPC_URL',
+]) {
+  if (secret in variables) errors.push(`${secret} must be stored as a Wrangler secret.`)
 }
 if (
   !productionDatabase?.database_id ||

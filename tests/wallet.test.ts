@@ -15,6 +15,7 @@ import {
 } from '../server/signer'
 import { paymentRequiredSchema } from '../shared/contracts'
 import { buildAgentWallet } from '../server/agent-wallet'
+import { sandboxBindings } from '../server/environment'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
 import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
@@ -196,7 +197,7 @@ describe('Agent Wallet', () => {
   })
 
   it('registers every configured Sandbox network with canonical USDC', () => {
-    expect(walletNetworks(env).map((network) => network.id)).toEqual([
+    expect(walletNetworks(sandboxBindings(env)).map((network) => network.id)).toEqual([
       'eip155:84532',
       'eip155:4801',
       'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
@@ -211,7 +212,7 @@ describe('Agent Wallet', () => {
 
   it('calculates the maximum amount the current Agent can pay', () => {
     const wallet = buildAgentWallet(
-      env,
+      sandboxBindings(env),
       {
         id: 'user-1',
         issuer: humanIssuer,

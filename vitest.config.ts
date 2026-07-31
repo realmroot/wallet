@@ -10,20 +10,14 @@ const oidcJwks =
 export default defineConfig({
   plugins: [
     cloudflareTest(async () => ({
-      wrangler: { configPath: './wrangler.jsonc' },
+      wrangler: { configPath: './wrangler.toml' },
       miniflare: {
         bindings: {
           APP_ORIGIN: 'https://wallet.test',
-          APP_BASE_URL: 'https://wallet.test',
           OIDC_ISSUER: 'https://fa.test/api/auth',
           OIDC_CLIENT_ID: 'agent-wallet-web',
-          OIDC_AUDIENCE: 'https://wallet.test/api',
-          DEFAULT_WALLET_NETWORK: 'eip155:84532',
           WALLET_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
           PAYMENT_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-          WALLET_ENVIRONMENT: 'production',
-          SANDBOX_OIDC_AUDIENCE: 'https://wallet.test/api/sandbox',
-          SANDBOX_DEFAULT_WALLET_NETWORK: 'eip155:84532',
           SANDBOX_WALLET_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
           SANDBOX_PAYMENT_NETWORKS: 'eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
           BASE_RPC_URL: 'https://mainnet.base.org',

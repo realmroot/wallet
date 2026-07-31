@@ -216,9 +216,25 @@ databases, and defaults to the CDP signer. Before deployment:
 
 1. Apply pending migrations with `pnpm db:migrate:production --remote` and
    `pnpm db:migrate:sandbox --remote`.
-2. Set `CDP_PROJECT_ID`, `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, and
-   `CDP_WALLET_SECRET` with `pnpm wrangler secret put <NAME>`.
-3. Run `pnpm check`, then `pnpm run deploy`.
+2. Keep public deployment settings in `wrangler.toml`. This includes origins,
+   public client/project/API-key identifiers, enabled networks, and
+   credential-free RPC endpoints. `APP_BASE_URL`, both OIDC audiences, both
+   default networks, and the active environment are derived at runtime.
+3. Set `CDP_API_KEY_SECRET` and `CDP_WALLET_SECRET` with
+   `pnpm wrangler secret put <NAME>`. Configure `SOLANA_RPC_URL` and
+   `SOLANA_DEVNET_RPC_URL` the same way because their provider URLs contain
+   API keys.
+4. Run `pnpm check`, then `pnpm run deploy`.
+
+The configuration boundary is:
+
+- checked in: application origins, OIDC client metadata, CDP project/key IDs,
+  network policy, signer mode, database bindings, and public RPC URLs;
+- Wrangler secrets: CDP private signing material;
+- conditional secrets: any RPC URL containing a provider API key or access
+  token. Remove that binding from `[vars]` before storing it as a secret;
+- derived at runtime: environment names, application base URLs, OIDC audiences,
+  and default networks.
 
 `/healthz` is a process liveness probe. `/readyz` additionally checks D1 and
 all signer/OIDC configuration needed by the selected mode.
