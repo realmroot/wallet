@@ -107,9 +107,9 @@ World → Solana rollout is approved. All three Sandbox networks are enabled.
 
 ## Agent API flow
 
-Agent Wallet does not ship a product-specific CLI. It publishes OpenAPI 3.1
-contracts at `/api/openapi.json` and `/api/sandbox/openapi.json`, with
-`/openapi.json` as the production discovery alias. Each API advertises its
+Agent Wallet does not ship a product-specific CLI. Its discovery roots are
+`/api` and `/api/sandbox`, with explicit OpenAPI 3.1 contracts at
+`/api/openapi.json` and `/api/sandbox/openapi.json`. Each API advertises its
 matching contract with an RFC 8631 `service-desc` link. The documents use a
 relative server URL so a standard OpenAPI client can select the production or
 Sandbox base URL without rewriting generated operation paths. Restish or
@@ -137,7 +137,7 @@ restish -p sandbox agent-wallet wallet show
 restish agent-wallet budget request
 restish agent-wallet budget status <request-id>
 restish agent-wallet payment authorize <idempotency-key> --payment-required <value>
-restish agent-wallet payment get <payment-id>
+restish agent-wallet payment status <payment-id>
 restish agent-wallet payment confirm <payment-id> --payment-response <value>
 ```
 
@@ -163,7 +163,7 @@ verifies a successful EVM ERC-20 or Solana SPL receipt contains the exact
 canonical USDC transfer from the user's account to the requested merchant
 before marking the payment settled.
 At any point the Agent can recover the current state through
-`restish agent-wallet payment get` without access to Wallet storage or
+`restish agent-wallet payment status` without access to Wallet storage or
 signature material.
 Reusing the same idempotency key returns the same signed payload without
 charging the Agent budget twice; a different business purchase uses a new key.

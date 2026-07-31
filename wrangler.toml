@@ -10,7 +10,7 @@ custom_domain = true
 
 [assets]
 not_found_handling = "single-page-application"
-run_worker_first = ["/api", "/api/*", "/healthz", "/readyz", "/openapi.json"]
+run_worker_first = ["/api", "/api/*", "/healthz", "/readyz"]
 
 [[d1_databases]]
 binding = "DB"

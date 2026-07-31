@@ -291,7 +291,7 @@ export const getPaymentRoute = createRoute({
   path: '/x402/payments/{paymentId}',
   operationId: agentOperations.getPayment.operationId,
   tags: ['payment'],
-  'x-cli-name': 'get',
+  'x-cli-name': 'status',
   security: [{ RealmrootOAuth: [] }],
   summary: 'Show an x402 payment',
   description:

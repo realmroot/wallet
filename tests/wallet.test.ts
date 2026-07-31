@@ -35,6 +35,11 @@ const budgetRequestsUrl = 'https://wallet.test/api/agent/budget-requests'
 const agentWalletUrl = 'https://wallet.test/api/agent/wallet'
 const ownerSubject = 'user-1'
 const agentSubject = 'agent-1'
+const configuredNetworks = [
+  'eip155:84532',
+  'eip155:4801',
+  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+]
 const mockSignerPrivateKey =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 const walletAddress = privateKeyToAccount(mockSignerPrivateKey).address
@@ -291,7 +296,7 @@ describe('Agent Wallet', () => {
   })
 
   it('publishes a Restish-discoverable x402 payer contract', async () => {
-    const discovery = await SELF.fetch('https://wallet.test/openapi.json')
+    const discovery = await SELF.fetch('https://wallet.test/api/openapi.json')
     expect(discovery.status).toBe(200)
     expect(discovery.headers.get('link')).toContain('rel="service-desc"')
     expect(await discovery.json()).toMatchObject({
@@ -373,7 +378,7 @@ describe('Agent Wallet', () => {
           get: {
             operationId: 'getPayment',
             tags: ['payment'],
-            'x-cli-name': 'get',
+            'x-cli-name': 'status',
             security: [{ RealmrootOAuth: ['wallet:x402:pay'] }],
           },
         },
@@ -439,17 +444,51 @@ describe('Agent Wallet', () => {
       },
       components: {
         schemas: {
+          AgentWallet: {
+            properties: {
+              networks: {
+                items: {
+                  properties: {
+                    network: {
+                      enum: configuredNetworks,
+                      example: 'eip155:84532',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          AgentPayment: {
+            properties: {
+              network: {
+                enum: configuredNetworks,
+                example: 'eip155:84532',
+              },
+            },
+          },
           PaymentRequired: {
             properties: {
               accepts: {
                 items: {
                   properties: {
+                    network: {
+                      enum: configuredNetworks,
+                      example: 'eip155:84532',
+                    },
                     payTo: {
                       description:
                         'Merchant recipient. On Solana, this address must already exist on the selected network.',
                     },
                   },
                 },
+              },
+            },
+          },
+          SettlementResponse: {
+            properties: {
+              network: {
+                enum: configuredNetworks,
+                example: 'eip155:84532',
               },
             },
           },
@@ -466,6 +505,9 @@ describe('Agent Wallet', () => {
     ])
 
     expect((await SELF.fetch('https://wallet.test/api/user-openapi.json')).status).toBe(404)
+
+    const rootAlias = await SELF.fetch('https://wallet.test/openapi.json')
+    expect(rootAlias.headers.get('content-type')).not.toContain('application/json')
   })
 
   it('exposes Sandbox through an explicit isolated API prefix', async () => {
@@ -503,6 +545,24 @@ describe('Agent Wallet', () => {
     expect(contract.status).toBe(200)
     expect(await contract.json()).toMatchObject({
       servers: [{ url: '.' }],
+      components: {
+        schemas: {
+          PaymentRequired: {
+            properties: {
+              accepts: {
+                items: {
+                  properties: {
+                    network: {
+                      enum: configuredNetworks,
+                      example: 'eip155:84532',
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     })
   })
 

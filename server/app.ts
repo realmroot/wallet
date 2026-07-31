@@ -119,13 +119,6 @@ export function createApp() {
       await Promise.all(environments.map(checkDatabaseReadiness))
       return c.json({ status: 'ready' }, 200)
     })
-    .get('/openapi.json', (c) => {
-      c.header(
-        'Link',
-        `<${openApiUrl(c.env)}>; rel="service-desc"; type="application/openapi+json"`,
-      )
-      return c.json(agentApiOpenApi(agentApi, c.env))
-    })
     .route('/api', createApi(agentApi))
     .onError(handleError)
 }
@@ -827,6 +820,7 @@ function agentApiOpenApi(
   env: Env,
 ) {
   const document = api.getOpenAPI31Document(agentApiDocument(env))
+  constrainOpenApiNetworks(document, env)
   const scheme = document.components?.securitySchemes?.RealmrootOAuth
   if (scheme && 'flows' in scheme && scheme.flows?.authorizationCode) {
     scheme.flows.authorizationCode.authorizationUrl = `${env.OIDC_ISSUER}/oauth2/authorize`
@@ -842,6 +836,38 @@ function agentApiOpenApi(
     }
   }
   return document
+}
+
+type MutableOpenApiSchema = {
+  properties?: Record<string, MutableOpenApiSchema>
+  items?: MutableOpenApiSchema
+  enum?: string[]
+  example?: string
+}
+
+function constrainOpenApiNetworks(
+  document: ReturnType<OpenAPIHono<AppEnv>['getOpenAPI31Document']>,
+  env: Env,
+) {
+  const schemas = document.components?.schemas as
+    | Record<string, MutableOpenApiSchema>
+    | undefined
+  const networkSchemas = [
+    schemas?.AgentWallet?.properties?.networks?.items?.properties?.network,
+    schemas?.PaymentRequired?.properties?.accepts?.items?.properties?.network,
+    schemas?.AgentPayment?.properties?.network,
+    schemas?.SettlementResponse?.properties?.network,
+  ]
+  if (networkSchemas.some((schema) => !schema)) {
+    throw new Error('Agent OpenAPI network schemas are incomplete.')
+  }
+
+  const networks = walletNetworks(env).map((network) => network.id)
+  const example = defaultWalletNetwork(env).id
+  for (const schema of networkSchemas) {
+    schema!.enum = networks
+    schema!.example = example
+  }
 }
 
 function openApiRouter() {
