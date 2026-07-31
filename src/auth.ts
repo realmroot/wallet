@@ -35,6 +35,29 @@ export function accessToken() {
   return localStorage.getItem(`${prefix}access_token`)
 }
 
+export async function cdpAccessToken(config: PublicConfig) {
+  const audience = `${config.appOrigin}/api`
+  const cached = currentAccessToken(productionPrefix, audience)
+  if (cached) return cached
+
+  for (const refreshToken of refreshTokens()) {
+    const response = await fetch(`${config.appOrigin}/api/oidc/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ grantType: 'refresh_token', refreshToken }),
+    })
+    if (!response.ok) continue
+    const tokens = (await response.json()) as TokenResponse
+    if (!tokenHasAudience(tokens.access_token, audience)) {
+      throw new Error('OIDC token exchange returned an invalid CDP audience.')
+    }
+    storeTokens(tokens, productionPrefix)
+    return tokens.access_token
+  }
+
+  throw new Error('CDP authentication requires a Wallet session.')
+}
+
 export function hasToken() {
   return Boolean(accessToken())
 }
@@ -223,6 +246,26 @@ function storeTokens(tokens: TokenResponse, targetPrefix = prefix) {
 function clearTokens(storagePrefix = prefix) {
   for (const key of ['access_token', 'refresh_token', 'id_token', 'expires_at']) {
     localStorage.removeItem(`${storagePrefix}${key}`)
+  }
+}
+
+function currentAccessToken(storagePrefix: string, audience: string) {
+  const token = localStorage.getItem(`${storagePrefix}access_token`)
+  const expiresAt = Number(localStorage.getItem(`${storagePrefix}expires_at`))
+  return token && expiresAt > Date.now() + 30_000 && tokenHasAudience(token, audience) ? token : null
+}
+
+function tokenHasAudience(token: string, expected: string) {
+  try {
+    const segment = token.split('.')[1]
+    if (!segment) return false
+    const encoded = segment.replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(encoded.padEnd(Math.ceil(encoded.length / 4) * 4, '='))) as {
+      aud?: string | string[]
+    }
+    return payload.aud === expected || payload.aud?.includes(expected) === true
+  } catch {
+    return false
   }
 }
 

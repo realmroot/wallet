@@ -21,7 +21,7 @@ export function PaymentsPage({ config }: { config: PublicConfig }) {
         description="Inspect signed x402 authorizations, settlement status, merchants, and on-chain receipts."
       />
       <PageError error={dashboard.overview.error} />
-      {overview ? <Payments overview={overview} page /> : null}
+      {overview ? <Payments config={config} overview={overview} page /> : null}
     </ConsoleLayout>
   )
 }

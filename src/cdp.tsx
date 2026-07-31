@@ -1,5 +1,5 @@
 import { updateWallet } from './api'
-import { accessToken, type PublicConfig } from './auth'
+import { cdpAccessToken, type PublicConfig } from './auth'
 import { useAuthenticateWithJWT, useCreateDelegation, useCurrentUser, useEvmAccounts } from '@coinbase/cdp-hooks'
 import { CDPReactProvider } from '@coinbase/cdp-react'
 import type { User } from '@coinbase/cdp-core'
@@ -14,7 +14,7 @@ export function CdpProvider({ config, children }: { config: PublicConfig; childr
         projectId: config.cdpProjectId,
         ethereum: { createOnLogin: 'eoa' },
         customAuth: {
-          getJwt: async () => accessToken() ?? undefined,
+          getJwt: () => cdpAccessToken(config),
         },
       }}
     >
@@ -89,7 +89,11 @@ function CdpProvisioning({
       const address = evmAccounts?.[0]?.address ?? authenticated.evmAccountObjects?.[0]?.address
       if (!address) throw new Error('CDP did not provision an EVM account.')
       const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString()
-      await createDelegation({ expiresAt })
+      try {
+        await createDelegation({ expiresAt })
+      } catch (cause) {
+        if (!activeDelegationExists(cause)) throw cause
+      }
       await updateWallet(config, {
         cdpUserId: authenticated.userId,
         address,
@@ -120,4 +124,9 @@ function CdpProvisioning({
       {error ? <p className="error">{error}</p> : null}
     </div>
   )
+}
+
+function activeDelegationExists(cause: unknown) {
+  return cause instanceof Error &&
+    cause.message.includes('An active delegation already exists for this user.')
 }

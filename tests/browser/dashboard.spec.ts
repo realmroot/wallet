@@ -181,6 +181,37 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   expect(await page.evaluate(() => sessionStorage.getItem('menu-transition-seen'))).toBeNull()
 })
 
+test('uses the configured network for BaseScan links', async ({ page }) => {
+  await page.unroute('**/api/config')
+  await page.route('**/api/config', (route) =>
+    route.fulfill({
+      json: {
+        appOrigin: 'http://localhost:6230',
+        appBaseUrl: 'http://localhost:6230',
+        oidcIssuer: 'https://fa.test/api/auth',
+        clientId: 'agent-wallet-web',
+        audience: 'http://localhost:6230/api',
+        agentIssuer: 'https://fa.test/api/auth',
+        environment: 'production',
+        network: 'eip155:8453',
+        paymentsEnabled: false,
+        cdpProjectId: null,
+      },
+    }),
+  )
+
+  await page.goto('/')
+
+  await expect(page.getByRole('link', { name: 'View wallet on BaseScan' })).toHaveAttribute(
+    'href',
+    `https://basescan.org/address/${walletAddress}`,
+  )
+  await expect(page.getByRole('link', { name: 'Receipt' })).toHaveAttribute(
+    'href',
+    `https://basescan.org/tx/0x${'ab'.repeat(32)}`,
+  )
+})
+
 test('validates and approves an Agent budget request', async ({ page }) => {
   let decision: Record<string, unknown> | null = null
   await page.route('**/api/budget-requests/request-1/inspect', async (route) => {

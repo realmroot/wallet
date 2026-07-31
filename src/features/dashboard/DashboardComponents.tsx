@@ -2,6 +2,7 @@ import type { AgentGrant, WalletOverview as WalletOverviewData } from '../../../
 import { actOnGrant, actOnWallet, requestFaucet, revokeGrant } from '../../api'
 import type { PublicConfig } from '../../auth'
 import { ProvisionWallet } from '../../cdp'
+import { blockExplorerAddressUrl, blockExplorerTransactionUrl } from '../../environment'
 import { delegationNeedsRenewal, eventLabel, formatToken, formatUsdc } from '../../lib/format'
 import {
   ArrowUpRight,
@@ -74,7 +75,7 @@ export function WalletOverview({
               </button>
               <a
                 className="icon-button"
-                href={`https://sepolia.basescan.org/address/${address}`}
+                href={blockExplorerAddressUrl(config.network, address)!}
                 target="_blank"
                 rel="noreferrer"
                 aria-label="View wallet on BaseScan"
@@ -288,10 +289,12 @@ export function AgentGrants({
 }
 
 export function Payments({
+  config,
   overview,
   compact = false,
   page = false,
 }: {
+  config: PublicConfig
   overview: WalletOverviewData
   compact?: boolean
   page?: boolean
@@ -323,7 +326,7 @@ export function Payments({
               {payment.transactionHash ? (
                 <a
                   className="receipt-link"
-                  href={`https://sepolia.basescan.org/tx/${payment.transactionHash}`}
+                  href={blockExplorerTransactionUrl(config.network, payment.transactionHash)!}
                   target="_blank"
                   rel="noreferrer"
                 >

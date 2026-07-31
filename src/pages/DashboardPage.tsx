@@ -69,7 +69,7 @@ export function DashboardPage({ config }: { config: PublicConfig }) {
             <h2>Recent payments</h2>
             <Link href="/payments">View all payments</Link>
           </div>
-          <Payments overview={{ ...overview, payments: overview.payments.slice(0, 3) }} compact />
+          <Payments config={config} overview={{ ...overview, payments: overview.payments.slice(0, 3) }} compact />
         </>
       ) : null}
     </ConsoleLayout>

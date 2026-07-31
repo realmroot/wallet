@@ -15,11 +15,17 @@ export function networkName(network: string) {
 }
 
 export function blockExplorerAddressUrl(network: string, address: string) {
-  const origin =
-    network === 'eip155:8453'
-      ? 'https://basescan.org'
-      : network === 'eip155:84532'
-        ? 'https://sepolia.basescan.org'
-        : null
+  const origin = blockExplorerOrigin(network)
   return origin ? `${origin}/address/${address}` : null
+}
+
+export function blockExplorerTransactionUrl(network: string, transactionHash: string) {
+  const origin = blockExplorerOrigin(network)
+  return origin ? `${origin}/tx/${transactionHash}` : null
+}
+
+function blockExplorerOrigin(network: string) {
+  if (network === 'eip155:8453') return 'https://basescan.org'
+  if (network === 'eip155:84532') return 'https://sepolia.basescan.org'
+  return null
 }
