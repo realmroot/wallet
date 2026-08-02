@@ -6,6 +6,7 @@ import {
   type PaymentRequired,
   type SettlementResponse,
   type WalletRuntime,
+  paymentPayloadSchema,
   paymentRequiredSchema,
   settlementResponseSchema,
   updateGrantSchema,
@@ -579,20 +580,22 @@ function createAgentApi() {
         return c.json(
           {
             paymentId: reservation.paymentId,
-            paymentPayload: reservation.paymentPayload,
+            paymentPayload: paymentPayloadSchema.parse(reservation.paymentPayload),
             replayed: true,
           },
           200,
         )
       }
       try {
-        const payload = await createX402Payment(c.env, {
-          cdpUserId: reservation.user.cdpUserId!,
-          account: reservation.account,
-          network: accepted.network,
-          paymentRequired,
-          idempotencyKey: reservation.paymentId,
-        })
+        const payload = paymentPayloadSchema.parse(
+          await createX402Payment(c.env, {
+            cdpUserId: reservation.user.cdpUserId!,
+            account: reservation.account,
+            network: accepted.network,
+            paymentRequired,
+            idempotencyKey: reservation.paymentId,
+          }),
+        )
         await completePayment(c.env.DB, reservation.paymentId, payload)
         await recordAuditEvent(c.env.DB, {
           userId: reservation.user.id,
@@ -855,6 +858,7 @@ function constrainOpenApiNetworks(
   const networkSchemas = [
     schemas?.AgentWallet?.properties?.networks?.items?.properties?.network,
     schemas?.PaymentRequired?.properties?.accepts?.items?.properties?.network,
+    schemas?.PaymentResult?.properties?.paymentPayload?.properties?.accepted?.properties?.network,
     schemas?.AgentPayment?.properties?.network,
     schemas?.SettlementResponse?.properties?.network,
   ]
