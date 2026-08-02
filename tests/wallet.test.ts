@@ -484,6 +484,22 @@ describe('Agent Wallet', () => {
               },
             },
           },
+          PaymentResult: {
+            properties: {
+              paymentPayload: {
+                properties: {
+                  accepted: {
+                    properties: {
+                      network: {
+                        enum: configuredNetworks,
+                        example: 'eip155:84532',
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
           SettlementResponse: {
             properties: {
               network: {
@@ -545,8 +561,65 @@ describe('Agent Wallet', () => {
     expect(contract.status).toBe(200)
     expect(await contract.json()).toMatchObject({
       servers: [{ url: '.' }],
+      paths: {
+        '/agent/wallet': {
+          get: {
+            responses: {
+              200: {
+                content: {
+                  'application/json': { schema: { $ref: '#/components/schemas/AgentWallet' } },
+                },
+              },
+            },
+          },
+        },
+        '/x402/payments': {
+          post: {
+            responses: {
+              200: {
+                content: {
+                  'application/json': { schema: { $ref: '#/components/schemas/PaymentResult' } },
+                },
+              },
+            },
+          },
+        },
+        '/x402/payments/{paymentId}': {
+          get: {
+            responses: {
+              200: {
+                content: {
+                  'application/json': { schema: { $ref: '#/components/schemas/AgentPayment' } },
+                },
+              },
+            },
+          },
+        },
+      },
       components: {
         schemas: {
+          AgentWallet: {
+            properties: {
+              networks: {
+                items: {
+                  properties: {
+                    network: {
+                      enum: configuredNetworks,
+                      example: 'eip155:84532',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          AgentPayment: {
+            properties: {
+              network: {
+                enum: configuredNetworks,
+                example: 'eip155:84532',
+              },
+            },
+          },
           PaymentRequired: {
             properties: {
               accepts: {
@@ -555,6 +628,22 @@ describe('Agent Wallet', () => {
                     network: {
                       enum: configuredNetworks,
                       example: 'eip155:84532',
+                    },
+                  },
+                },
+              },
+            },
+          },
+          PaymentResult: {
+            properties: {
+              paymentPayload: {
+                properties: {
+                  accepted: {
+                    properties: {
+                      network: {
+                        enum: configuredNetworks,
+                        example: 'eip155:84532',
+                      },
                     },
                   },
                 },

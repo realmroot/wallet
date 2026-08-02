@@ -342,10 +342,18 @@ export const walletOverviewSchema = z
   .openapi('WalletOverview')
 export type WalletOverview = z.infer<typeof walletOverviewSchema>
 
+export const paymentPayloadSchema = z.object({
+  x402Version: z.number().int().positive(),
+  resource: paymentRequiredSchema.shape.resource,
+  accepted: paymentOptionSchema,
+  payload: z.record(z.string(), z.unknown()),
+  extensions: z.record(z.string(), z.unknown()).optional(),
+})
+
 export const paymentResultSchema = z
   .object({
     paymentId: resourceId,
-    paymentPayload: z.record(z.string(), z.unknown()),
+    paymentPayload: paymentPayloadSchema,
     replayed: z.boolean(),
   })
   .openapi('PaymentResult')
