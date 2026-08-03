@@ -7,7 +7,7 @@ import {
   walletAsset,
 } from '../server/cdp'
 import { hasMatchingSolanaTransfer, hasMatchingUsdcTransfer } from '../server/settlement'
-import { walletNetworkDefinition, walletNetworks } from '../server/network'
+import { walletNetworkDefinition, walletNetworkIds, walletNetworks } from '../server/network'
 import {
   appendPaymentIdentifier,
   requireCdpSignerConfig,
@@ -15,7 +15,8 @@ import {
 } from '../server/signer'
 import { paymentRequiredSchema } from '../shared/contracts'
 import { buildAgentWallet } from '../server/agent-wallet'
-import { sandboxBindings } from '../server/environment'
+import { createApp } from '../server/app'
+import { resolveWalletRequest, sandboxBindings } from '../server/environment'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
 import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
@@ -40,6 +41,29 @@ const configuredNetworks = [
   'eip155:4801',
   'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
 ]
+
+type AgentOpenApiNetworkContract = {
+  components: {
+    schemas: {
+      PaymentRequired: {
+        properties: {
+          accepts: {
+            items: {
+              properties: {
+                network: { enum: string[]; example: string }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+function paymentRequiredNetworkSchema(document: AgentOpenApiNetworkContract) {
+  return document.components.schemas.PaymentRequired.properties.accepts.items.properties.network
+}
+
 const mockSignerPrivateKey =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 const walletAddress = privateKeyToAccount(mockSignerPrivateKey).address
@@ -450,7 +474,7 @@ describe('Agent Wallet', () => {
                 items: {
                   properties: {
                     network: {
-                      enum: configuredNetworks,
+                      enum: walletNetworkIds,
                       example: 'eip155:84532',
                     },
                   },
@@ -461,7 +485,7 @@ describe('Agent Wallet', () => {
           AgentPayment: {
             properties: {
               network: {
-                enum: configuredNetworks,
+                enum: walletNetworkIds,
                 example: 'eip155:84532',
               },
             },
@@ -472,7 +496,7 @@ describe('Agent Wallet', () => {
                 items: {
                   properties: {
                     network: {
-                      enum: configuredNetworks,
+                      enum: walletNetworkIds,
                       example: 'eip155:84532',
                     },
                     payTo: {
@@ -491,7 +515,7 @@ describe('Agent Wallet', () => {
                   accepted: {
                     properties: {
                       network: {
-                        enum: configuredNetworks,
+                        enum: walletNetworkIds,
                         example: 'eip155:84532',
                       },
                     },
@@ -503,7 +527,7 @@ describe('Agent Wallet', () => {
           SettlementResponse: {
             properties: {
               network: {
-                enum: configuredNetworks,
+                enum: walletNetworkIds,
                 example: 'eip155:84532',
               },
             },
@@ -561,6 +585,21 @@ describe('Agent Wallet', () => {
     expect(contract.status).toBe(200)
     expect(await contract.json()).toMatchObject({
       servers: [{ url: '.' }],
+      'x-cli-config': {
+        profiles: {
+          default: {
+            credentials: {
+              RealmrootOAuth: {
+                auth: {
+                  params: {
+                    scopes: 'wallet:read wallet:budget:request wallet:x402:pay',
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       paths: {
         '/agent/wallet': {
           get: {
@@ -604,7 +643,7 @@ describe('Agent Wallet', () => {
                 items: {
                   properties: {
                     network: {
-                      enum: configuredNetworks,
+                      enum: walletNetworkIds,
                       example: 'eip155:84532',
                     },
                   },
@@ -615,7 +654,7 @@ describe('Agent Wallet', () => {
           AgentPayment: {
             properties: {
               network: {
-                enum: configuredNetworks,
+                enum: walletNetworkIds,
                 example: 'eip155:84532',
               },
             },
@@ -626,7 +665,7 @@ describe('Agent Wallet', () => {
                 items: {
                   properties: {
                     network: {
-                      enum: configuredNetworks,
+                      enum: walletNetworkIds,
                       example: 'eip155:84532',
                     },
                   },
@@ -641,7 +680,7 @@ describe('Agent Wallet', () => {
                   accepted: {
                     properties: {
                       network: {
-                        enum: configuredNetworks,
+                        enum: walletNetworkIds,
                         example: 'eip155:84532',
                       },
                     },
@@ -652,6 +691,44 @@ describe('Agent Wallet', () => {
           },
         },
       },
+    })
+  })
+
+  it('publishes a profile-stable network schema with environment-specific defaults', async () => {
+    const app = createApp()
+    const bindings = {
+      APP_ORIGIN: 'https://wallet.test',
+      OIDC_ISSUER: 'https://fa.test/api/auth',
+      OIDC_CLIENT_ID: 'agent-wallet-web',
+      SIGNER_MODE: 'cdp',
+      WALLET_NETWORKS: 'eip155:8453,eip155:137',
+      PAYMENT_NETWORKS: 'eip155:8453',
+      SANDBOX_WALLET_NETWORKS: 'eip155:84532,eip155:4801',
+      SANDBOX_PAYMENT_NETWORKS: 'eip155:84532,eip155:4801',
+    } as Env
+
+    const productionRequest = resolveWalletRequest(
+      new Request('https://wallet.test/api/openapi.json'),
+      bindings,
+    )
+    const sandboxRequest = resolveWalletRequest(
+      new Request('https://wallet.test/api/sandbox/openapi.json'),
+      bindings,
+    )
+    const production = await app.fetch(productionRequest.request, productionRequest.env)
+    const sandbox = await app.fetch(sandboxRequest.request, sandboxRequest.env)
+    expect(production.status).toBe(200)
+    expect(sandbox.status).toBe(200)
+
+    const productionDocument = await production.json<AgentOpenApiNetworkContract>()
+    const sandboxDocument = await sandbox.json<AgentOpenApiNetworkContract>()
+    expect(paymentRequiredNetworkSchema(productionDocument)).toMatchObject({
+      enum: walletNetworkIds,
+      example: 'eip155:8453',
+    })
+    expect(paymentRequiredNetworkSchema(sandboxDocument)).toMatchObject({
+      enum: walletNetworkIds,
+      example: 'eip155:84532',
     })
   })
 

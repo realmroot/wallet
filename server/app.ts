@@ -72,6 +72,7 @@ import {
   defaultWalletNetwork,
   networkPaymentsEnabled,
   walletNetworkDefinition,
+  walletNetworkIds,
   walletNetworks,
 } from './network'
 import { validatePaymentRecipient } from './payment-recipient'
@@ -866,7 +867,7 @@ function constrainOpenApiNetworks(
     throw new Error('Agent OpenAPI network schemas are incomplete.')
   }
 
-  const networks = walletNetworks(env).map((network) => network.id)
+  const networks = [...walletNetworkIds]
   const example = defaultWalletNetwork(env).id
   for (const schema of networkSchemas) {
     schema!.enum = networks

@@ -121,7 +121,14 @@ restish api set agent-wallet 'command_layout: tags'
 restish api set agent-wallet \
   'profiles.sandbox.base_url: https://wallet.realmroot.dev/api/sandbox'
 restish agent-wallet --help
+restish -p sandbox agent-wallet --help
 ```
+
+The generated request schemas use one stable set of platform-supported network
+identifiers so the cached contract remains valid when a Restish profile changes
+the base URL. The top-level `x-wallet-environment` extension is authoritative
+for the networks enabled by the selected endpoint; the server still rejects a
+payment network that is not enabled in that environment.
 
 The document declares one standard Realmroot OAuth security scheme with
 operation-specific scopes. Restish's declarative `x-cli-config` selects the
