@@ -22,6 +22,9 @@ one deployment and one D1 database. No application smart contract is required.
 - The Worker validates human access tokens against the configured OIDC issuer/JWKS and keys users by `(iss, sub)`.
 - Realmroot is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer and discovery document. The Agent token's top-level `sub` is the authorizing user, its RFC 8693 `act` identifies the stable Agent with `sub_profile: ai_agent`, and `cnf.jkt` binds the token to DPoP. The Wallet resolves the issuer's discovered `agentinfo_endpoint` for the Agent's public name and picture.
 - Every Agent payment request requires a fresh DPoP proof. Replayed proofs are rejected.
+- The API publishes RFC 9728 Protected Resource Metadata at
+  `/.well-known/oauth-protected-resource/api`. Authentication challenges link
+  clients to that document with the `resource_metadata` parameter.
 - Agent Wallet owns wallet mappings, CDP delegated signing, balances, testnet funding, budget policy, idempotency, settlement verification, and the payment audit log.
 - A Wallet-wide emergency pause blocks all new signatures. Grant pauses, expiration, merchant origins, recipient addresses, and amount limits are rechecked transactionally before each payment reservation.
 - CDP holds signing authority. Agent Wallet does not store an end-user private key.
@@ -107,7 +110,9 @@ sequential Base → Polygon → Arbitrum → World → Solana rollout is approve
 
 Agent Wallet does not ship a product-specific CLI. Its single discovery root
 is `/api`, with an explicit OpenAPI 3.1 contract at `/api/openapi.json`. The API
-advertises that contract with an RFC 8631 `service-desc` link. Restish or
+advertises that contract with an RFC 8631 `service-desc` link and publishes its
+OAuth authorization-server, scope, bearer-header, and DPoP capabilities through
+RFC 9728 Protected Resource Metadata. Restish or
 another Agent HTTP client discovers the operations directly:
 
 ```sh

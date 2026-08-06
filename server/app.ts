@@ -76,6 +76,11 @@ import {
   walletNetworks,
 } from './network'
 import { validatePaymentRecipient } from './payment-recipient'
+import {
+  protectedResourceMetadata,
+  protectedResourceMetadataPath,
+  withProtectedResourceMetadataChallenge,
+} from './protected-resource-metadata'
 import type { PaymentPayload } from '@x402/core/types'
 import {
   decodePaymentRequiredHeader,
@@ -100,6 +105,11 @@ export function createApp() {
   const agentApi = createAgentApi()
 
   return app
+    .get(protectedResourceMetadataPath, (c) => {
+      c.header('Access-Control-Allow-Origin', '*')
+      c.header('Cache-Control', 'public, max-age=3600')
+      return c.json(protectedResourceMetadata(c.env), 200)
+    })
     .get('/healthz', (c) =>
       c.json({
         status: 'ok',
@@ -139,7 +149,14 @@ function createApi(agentApi: ReturnType<typeof createAgentApi>) {
         'PAYMENT-RESPONSE',
       ],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-      exposeHeaders: ['Link', 'Location', 'PAYMENT-SIGNATURE', 'Retry-After', 'X-Request-Id'],
+      exposeHeaders: [
+        'Link',
+        'Location',
+        'PAYMENT-SIGNATURE',
+        'Retry-After',
+        'WWW-Authenticate',
+        'X-Request-Id',
+      ],
       maxAge: 86400,
     }),
   )
@@ -898,7 +915,15 @@ function handleError(error: Error, c: Context<AppEnv>) {
     }),
   )
   if (error instanceof ApiError) {
-    for (const [name, value] of new Headers(error.headers)) c.header(name, value)
+    const headers = new Headers(error.headers)
+    for (const [name, value] of headers) c.header(name, value)
+    const challenge = headers.get('WWW-Authenticate')
+    if (error.status === 401 || challenge) {
+      c.header(
+        'WWW-Authenticate',
+        withProtectedResourceMetadataChallenge(c.env, challenge),
+      )
+    }
     return c.json({ error: error.code, message: error.message }, error.status)
   }
   return c.json({ error: 'internal_error', message: 'The request failed.' }, 500)

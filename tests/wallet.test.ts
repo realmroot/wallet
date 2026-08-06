@@ -534,6 +534,52 @@ describe('Agent Wallet', () => {
     expect(rootAlias.headers.get('content-type')).not.toContain('application/json')
   })
 
+  it('publishes RFC 9728 metadata for the Wallet API resource', async () => {
+    const response = await SELF.fetch(
+      'https://wallet.test/.well-known/oauth-protected-resource/api',
+      { headers: { origin: 'https://client.test' } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toContain('application/json')
+    expect(response.headers.get('cache-control')).toBe('public, max-age=3600')
+    expect(response.headers.get('access-control-allow-origin')).toBe('*')
+    expect(await response.json()).toEqual({
+      resource: 'https://wallet.test/api',
+      authorization_servers: ['https://fa.test/api/auth'],
+      scopes_supported: [
+        'wallet:read',
+        'wallet:budget:request',
+        'wallet:x402:pay',
+        'wallet:manage',
+      ],
+      bearer_methods_supported: ['header'],
+      resource_name: 'Agent Wallet API',
+      dpop_signing_alg_values_supported: ['ES256', 'EdDSA'],
+    })
+
+    expect(
+      (await SELF.fetch('https://wallet.test/.well-known/oauth-protected-resource')).status,
+    ).toBe(404)
+  })
+
+  it('advertises RFC 9728 metadata in authentication challenges', async () => {
+    const metadataUrl =
+      'https://wallet.test/.well-known/oauth-protected-resource/api'
+    const humanResponse = await SELF.fetch('https://wallet.test/api/overview')
+    expect(humanResponse.status).toBe(401)
+    expect(humanResponse.headers.get('www-authenticate')).toBe(
+      `Bearer resource_metadata="${metadataUrl}"`,
+    )
+
+    const agentResponse = await SELF.fetch(agentWalletUrl)
+    expect(agentResponse.status).toBe(401)
+    expect(agentResponse.headers.get('www-authenticate')).toContain(
+      `resource_metadata="${metadataUrl}"`,
+    )
+    expect(agentResponse.headers.get('www-authenticate')).toContain('DPoP error="invalid_token"')
+  })
+
   it('keeps Sandbox as a product view on the single Wallet API', async () => {
     const configResponse = await SELF.fetch('https://wallet.test/api/config')
     expect(configResponse.status).toBe(200)

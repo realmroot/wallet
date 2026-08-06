@@ -34,10 +34,24 @@ const paymentAuthorizationBadRequestResponse = {
 const authenticationResponses = {
   401: {
     description: 'Authentication failed.',
+    headers: {
+      'WWW-Authenticate': {
+        description:
+          'OAuth authentication challenge including the RFC 9728 protected resource metadata URL.',
+        schema: { type: 'string' },
+      },
+    },
     content: json(apiErrorSchema),
   },
   403: {
     description: 'The principal is not authorized.',
+    headers: {
+      'WWW-Authenticate': {
+        description:
+          'OAuth insufficient-scope challenge including the RFC 9728 protected resource metadata URL when applicable.',
+        schema: { type: 'string' },
+      },
+    },
     content: json(apiErrorSchema),
   },
 } as const
