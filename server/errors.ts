@@ -6,8 +6,10 @@ export class ApiError extends Error {
     readonly code: string,
     message: string,
     readonly headers?: HeadersInit,
+    readonly diagnostics?: Readonly<Record<string, unknown>>,
   ) {
     super(message)
+    this.name = 'ApiError'
   }
 }
 
@@ -18,4 +20,7 @@ export const forbidden = (message: string, headers?: HeadersInit) =>
 export const badRequest = (message: string) => new ApiError(400, 'bad_request', message)
 export const conflict = (message: string) => new ApiError(409, 'conflict', message)
 export const notFound = (message: string) => new ApiError(404, 'not_found', message)
-export const upstreamError = (message: string) => new ApiError(502, 'upstream_error', message)
+export const upstreamError = (
+  message: string,
+  diagnostics?: Readonly<Record<string, unknown>>,
+) => new ApiError(502, 'upstream_error', message, undefined, diagnostics)

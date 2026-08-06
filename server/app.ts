@@ -64,6 +64,7 @@ import {
   agentOperations,
   agentScopeCatalog,
   requireAgentOperationPolicy,
+  walletScopeCatalog,
 } from './agent-policy'
 import { verifySettlement } from './settlement'
 import { createX402Payment } from './signer'
@@ -459,7 +460,7 @@ function createAgentApi() {
       authorizationCode: {
         authorizationUrl: 'https://realmroot.invalid/api/auth/oauth2/authorize',
         tokenUrl: 'https://realmroot.invalid/api/auth/oauth2/token',
-        scopes: agentScopeCatalog,
+        scopes: walletScopeCatalog,
       },
     },
     description:
@@ -884,18 +885,27 @@ function openApiRouter() {
 }
 
 function handleError(error: Error, c: Context<AppEnv>) {
-  if (error instanceof ApiError) {
-    for (const [name, value] of new Headers(error.headers)) c.header(name, value)
-    return c.json({ error: error.code, message: error.message }, error.status)
-  }
+  const apiError = error instanceof ApiError ? error : undefined
   console.error(
     JSON.stringify({
       message: 'request failed',
       requestId: c.get('requestId'),
+      method: c.req.method,
       path: new URL(c.req.url).pathname,
-      error: error.message,
+      status: apiError?.status ?? 500,
+      errorCode: apiError?.code ?? 'internal_error',
+      error: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+        diagnostics: apiError?.diagnostics,
+      },
     }),
   )
+  if (error instanceof ApiError) {
+    for (const [name, value] of new Headers(error.headers)) c.header(name, value)
+    return c.json({ error: error.code, message: error.message }, error.status)
+  }
   return c.json({ error: 'internal_error', message: 'The request failed.' }, 500)
 }
 

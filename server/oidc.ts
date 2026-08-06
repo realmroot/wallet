@@ -65,10 +65,22 @@ export async function exchangeOidcToken(env: Env, input: OidcTokenInput) {
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body,
   })
-  if (!response.ok) throw upstreamError('OIDC token exchange failed.')
+  if (!response.ok) {
+    throw upstreamError(
+      'OIDC token exchange failed.',
+      await oidcFailureDiagnostics(response, 'token_exchange'),
+    )
+  }
 
   const result = tokenResponse.safeParse(await response.json().catch(() => null))
-  if (!result.success) throw upstreamError('OIDC token response is invalid.')
+  if (!result.success) {
+    throw upstreamError('OIDC token response is invalid.', {
+      dependency: 'oidc',
+      operation: 'token_exchange',
+      upstreamStatus: response.status,
+      schemaIssues: result.error.issues.map(({ code, path }) => ({ code, path })),
+    })
+  }
   return result.data
 }
 
@@ -85,14 +97,55 @@ export async function revokeOidcToken(env: Env, token: string) {
       client_id: env.OIDC_CLIENT_ID,
     }),
   })
-  if (!response.ok) throw upstreamError('OIDC token revocation failed.')
+  if (!response.ok) {
+    throw upstreamError(
+      'OIDC token revocation failed.',
+      await oidcFailureDiagnostics(response, 'token_revocation'),
+    )
+  }
 }
 
 async function discoverOidc(issuer: string) {
   const response = await fetch(`${issuer}/.well-known/openid-configuration`)
-  if (!response.ok) throw upstreamError('OIDC discovery failed.')
+  if (!response.ok) {
+    throw upstreamError(
+      'OIDC discovery failed.',
+      await oidcFailureDiagnostics(response, 'discovery'),
+    )
+  }
 
   const result = oidcMetadata.safeParse(await response.json().catch(() => null))
-  if (!result.success) throw upstreamError('OIDC discovery metadata is invalid.')
+  if (!result.success) {
+    throw upstreamError('OIDC discovery metadata is invalid.', {
+      dependency: 'oidc',
+      operation: 'discovery',
+      upstreamStatus: response.status,
+      schemaIssues: result.error.issues.map(({ code, path }) => ({ code, path })),
+    })
+  }
   return result.data
+}
+
+async function oidcFailureDiagnostics(response: Response, operation: string) {
+  const payload = await response.json<unknown>().catch(() => null)
+  const fields =
+    payload && typeof payload === 'object'
+      ? (payload as Record<string, unknown>)
+      : undefined
+  return {
+    dependency: 'oidc',
+    operation,
+    upstreamStatus: response.status,
+    upstreamStatusText: response.statusText,
+    upstreamCode: firstString(fields, ['error', 'code', 'errorType']),
+    upstreamMessage: firstString(fields, ['error_description', 'message', 'errorMessage']),
+  }
+}
+
+function firstString(fields: Record<string, unknown> | undefined, names: string[]) {
+  for (const name of names) {
+    const value = fields?.[name]
+    if (typeof value === 'string') return value.slice(0, 1_000)
+  }
+  return undefined
 }

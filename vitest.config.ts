@@ -134,6 +134,16 @@ export default defineConfig({
             })
           }
           if (url.pathname === '/api/auth/oauth2/token' && request.method === 'POST') {
+            const body = await request.clone().formData()
+            if (body.get('code') === 'rejected-authorization-code') {
+              return Response.json(
+                {
+                  error: 'invalid_grant',
+                  error_description: 'The authorization code is invalid or expired.',
+                },
+                { status: 400 },
+              )
+            }
             return Response.json({
               access_token: 'access-token',
               refresh_token: 'refresh-token',

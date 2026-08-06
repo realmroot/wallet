@@ -26,7 +26,7 @@ import {
   encodePaymentRequiredHeader,
   encodePaymentResponseHeader,
 } from '@x402/core/http'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
 const humanIssuer = 'https://fa.test/api/auth'
 const agentIssuer = humanIssuer
@@ -67,6 +67,8 @@ function paymentRequiredNetworkSchema(document: AgentOpenApiNetworkContract) {
 const mockSignerPrivateKey =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 const walletAddress = privateKeyToAccount(mockSignerPrivateKey).address
+
+afterEach(() => vi.restoreAllMocks())
 
 let humanPrivateKey: CryptoKey
 let humanPublicJwk: JsonWebKey
@@ -347,6 +349,7 @@ describe('Agent Wallet', () => {
                 tokenUrl: 'https://fa.test/api/auth/oauth2/token',
                 scopes: {
                   'wallet:read': expect.any(String),
+                  'wallet:manage': expect.any(String),
                   'wallet:budget:request': expect.any(String),
                   'wallet:x402:pay': expect.any(String),
                 },
@@ -892,6 +895,51 @@ describe('Agent Wallet', () => {
       }),
     })
     expect(crossOrigin.status).toBe(403)
+  })
+
+  it('logs detailed OIDC failures at the request error boundary', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const exchange = await SELF.fetch('https://wallet.test/api/oidc/token', {
+      method: 'POST',
+      headers: {
+        origin: 'https://wallet.test',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        grantType: 'authorization_code',
+        code: 'rejected-authorization-code',
+        codeVerifier: 'v'.repeat(64),
+      }),
+    })
+
+    expect(exchange.status).toBe(502)
+    expect(await exchange.json()).toEqual({
+      error: 'upstream_error',
+      message: 'OIDC token exchange failed.',
+    })
+    const serializedLog = String(errorLog.mock.calls.at(-1)?.[0])
+    expect(serializedLog).not.toContain('rejected-authorization-code')
+    expect(serializedLog).not.toContain('v'.repeat(64))
+    const log = JSON.parse(serializedLog)
+    expect(log).toMatchObject({
+      message: 'request failed',
+      method: 'POST',
+      path: '/api/oidc/token',
+      status: 502,
+      errorCode: 'upstream_error',
+      error: {
+        message: 'OIDC token exchange failed.',
+        diagnostics: {
+          dependency: 'oidc',
+          operation: 'token_exchange',
+          upstreamStatus: 400,
+          upstreamCode: 'invalid_grant',
+          upstreamMessage: 'The authorization code is invalid or expired.',
+        },
+      },
+    })
+    expect(log.requestId).toEqual(expect.any(String))
+    expect(log.error.stack).toContain('ApiError: OIDC token exchange failed.')
   })
 
   it('provisions a wallet and approves a budget requested by the payment operation', async () => {

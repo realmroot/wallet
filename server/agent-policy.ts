@@ -48,6 +48,11 @@ export const agentScopeCatalog = Object.fromEntries(
   Object.values(agentScopes).map(({ value, description }) => [value, description]),
 )
 
+export const walletScopeCatalog = {
+  ...agentScopeCatalog,
+  'wallet:manage': 'Manage the Wallet, Agent grants, and budget decisions.',
+}
+
 const policiesByOperationId: ReadonlyMap<string, AgentOperationPolicy> = new Map(
   Object.values(agentOperations).map((policy) => [policy.operationId, policy]),
 )
