@@ -1,7 +1,7 @@
 import type { PublicConfig } from '../auth'
-import { beginLogin, hasOtherEnvironmentSession } from '../auth'
+import { beginLogin, hasRefreshToken } from '../auth'
 import { ArrowRight, Bot, KeyRound, ShieldCheck, WalletCards } from 'lucide-react'
-import { networkName } from '../environment'
+import { appBasePath, networkName, walletMode } from '../environment'
 import { useEffect, useState } from 'react'
 
 export function LoginPage({
@@ -14,7 +14,7 @@ export function LoginPage({
   returnTo?: string
 }) {
   const [loginError, setLoginError] = useState<string | null>(null)
-  const continuingSession = hasOtherEnvironmentSession()
+  const continuingSession = hasRefreshToken()
 
   useEffect(() => {
     if (!continuingSession) return
@@ -27,19 +27,19 @@ export function LoginPage({
     <main className="login-page">
       <section className="login-hero">
         <div className="login-header">
-          <a className="wordmark login-wordmark" href={config.appBaseUrl} aria-label="Agent Wallet home">
+          <a className="wordmark login-wordmark" href={`${config.appOrigin}${appBasePath}`} aria-label="Agent Wallet home">
             <span className="brand-symbol"><WalletCards size={18} /></span>
             <span>Agent Wallet</span>
           </a>
-          <div className="environment-switcher login-environment-switcher" aria-label="Wallet environment">
+          <div className="environment-switcher login-environment-switcher" aria-label="Wallet mode">
             <a
-              aria-current={config.environment === 'production' ? 'true' : undefined}
+              aria-current={walletMode === 'production' ? 'true' : undefined}
               href={config.appOrigin}
             >
               Production
             </a>
             <a
-              aria-current={config.environment === 'sandbox' ? 'true' : undefined}
+              aria-current={walletMode === 'sandbox' ? 'true' : undefined}
               href={`${config.appOrigin}/sandbox`}
             >
               Sandbox
@@ -59,7 +59,7 @@ export function LoginPage({
               setLoginError(cause instanceof Error ? cause.message : 'OIDC login failed.')
             })}
           >
-            {continuingSession ? 'Switching environment…' : 'Continue with identity provider'}
+            {continuingSession ? 'Restoring session…' : 'Continue with identity provider'}
             <ArrowRight size={17} />
           </button>
           {error || loginError ? <p className="login-error" role="alert">{error ?? loginError}</p> : null}

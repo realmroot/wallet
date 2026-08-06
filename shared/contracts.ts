@@ -25,6 +25,8 @@ const networkId = z
   .regex(/^[a-z0-9]+:[A-Za-z0-9._-]+$/)
   .openapi({ description: 'CAIP-2 network identifier.', example: 'eip155:84532' })
 const accountFamily = z.enum(['evm', 'solana'])
+export const walletModeSchema = z.enum(['production', 'sandbox'])
+export type WalletMode = z.infer<typeof walletModeSchema>
 const printableAscii = /^[\x20-\x7e]+$/
 
 const paymentOptionSchema = z.object({
@@ -81,7 +83,10 @@ export const paymentRequiredSchema = z
   .openapi('PaymentRequired')
 
 export const createBudgetRequestSchema = z
-  .object({ name: z.string().trim().min(1).max(100).optional() })
+  .object({
+    mode: walletModeSchema,
+    name: z.string().trim().min(1).max(100).optional(),
+  })
   .openapi('CreateBudgetRequest')
 
 export const inspectBudgetRequestSchema = z
@@ -141,6 +146,7 @@ export const budgetRequestStateSchema = z
   .object({
     requestId: resourceId.nullable(),
     budgetId: resourceId.nullable(),
+    mode: walletModeSchema,
     status: budgetRequestStatusSchema,
     expiresAt: z.iso.datetime(),
     approvalUrl: z.url().optional(),
@@ -193,6 +199,7 @@ export const agentGrantSchema = z
     id: z.string(),
     agentIssuer: z.string(),
     agentSubject: z.string(),
+    mode: walletModeSchema,
     name: z.string(),
     totalLimit: atomicAmount,
     spentTotal: usedAtomicAmount,
@@ -226,6 +233,7 @@ export type AgentWalletBlocker = z.infer<typeof agentWalletBlockerSchema>
 
 const agentBudgetSchema = z.object({
   id: resourceId,
+  mode: walletModeSchema,
   name: z.string(),
   status: z.enum(['active', 'paused', 'expired']),
   limits: z.object({
@@ -247,6 +255,7 @@ const agentBudgetSchema = z.object({
 
 export const agentWalletNetworkSchema = z.object({
   network: networkId,
+  mode: walletModeSchema,
   name: z.string(),
   family: accountFamily,
   paymentsEnabled: z.boolean(),
@@ -270,7 +279,7 @@ export type AgentWalletNetwork = z.infer<typeof agentWalletNetworkSchema>
 
 export const agentWalletSchema = z
   .object({
-    budget: agentBudgetSchema.nullable(),
+    budgets: z.array(agentBudgetSchema),
     networks: z.array(agentWalletNetworkSchema),
   })
   .openapi('AgentWallet')

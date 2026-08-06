@@ -5,7 +5,6 @@ const config = parse(await readFile(new URL('../wrangler.toml', import.meta.url)
 const errors = []
 const variables = config.vars ?? {}
 const productionDatabase = config.d1_databases?.find((binding) => binding.binding === 'DB')
-const sandboxDatabase = config.d1_databases?.find((binding) => binding.binding === 'SANDBOX_DB')
 
 for (const name of [
   'APP_ORIGIN',
@@ -41,7 +40,30 @@ if (variables.OIDC_ISSUER?.endsWith('/')) {
 if (variables.SIGNER_MODE !== 'cdp') {
   errors.push('SIGNER_MODE must be cdp.')
 }
-const productionNetworks = new Set(variables.WALLET_NETWORKS?.split(',') ?? [])
+const walletNetworks = new Set(variables.WALLET_NETWORKS?.split(',') ?? [])
+for (const network of [
+  'eip155:8453',
+  'eip155:84532',
+  'eip155:137',
+  'eip155:42161',
+  'eip155:480',
+  'eip155:4801',
+  'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+]) {
+  if (!walletNetworks.has(network)) errors.push(`WALLET_NETWORKS must include ${network}.`)
+}
+if (variables.WALLET_NETWORKS?.split(',', 1)[0] !== 'eip155:8453') {
+  errors.push('The first production Wallet network must be Base Mainnet (eip155:8453).')
+}
+const paymentNetworks = new Set(variables.PAYMENT_NETWORKS?.split(',') ?? [])
+for (const network of [
+  'eip155:84532',
+  'eip155:4801',
+  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
+]) {
+  if (!paymentNetworks.has(network)) errors.push(`PAYMENT_NETWORKS must include ${network}.`)
+}
 for (const network of [
   'eip155:8453',
   'eip155:137',
@@ -49,26 +71,9 @@ for (const network of [
   'eip155:480',
   'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
 ]) {
-  if (!productionNetworks.has(network)) errors.push(`WALLET_NETWORKS must include ${network}.`)
-}
-if (variables.PAYMENT_NETWORKS !== '') {
-  errors.push('Production PAYMENT_NETWORKS must remain empty until mainnet acceptance.')
-}
-if (variables.WALLET_NETWORKS?.split(',', 1)[0] !== 'eip155:8453') {
-  errors.push('The first production Wallet network must be Base Mainnet (eip155:8453).')
-}
-if (variables.SANDBOX_WALLET_NETWORKS?.split(',', 1)[0] !== 'eip155:84532') {
-  errors.push('The first Sandbox Wallet network must be Base Sepolia (eip155:84532).')
-}
-const sandboxNetworks = new Set(variables.SANDBOX_WALLET_NETWORKS?.split(',') ?? [])
-const sandboxPaymentNetworks = new Set(variables.SANDBOX_PAYMENT_NETWORKS?.split(',') ?? [])
-for (const network of [
-  'eip155:84532',
-  'eip155:4801',
-  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-]) {
-  if (!sandboxNetworks.has(network)) errors.push(`SANDBOX_WALLET_NETWORKS must include ${network}.`)
-  if (!sandboxPaymentNetworks.has(network)) errors.push(`SANDBOX_PAYMENT_NETWORKS must include ${network}.`)
+  if (paymentNetworks.has(network)) {
+    errors.push(`PAYMENT_NETWORKS must not enable mainnet ${network} before acceptance.`)
+  }
 }
 if (typeof variables.OIDC_CLIENT_ID !== 'string' || variables.OIDC_CLIENT_ID.trim() === '') {
   errors.push('OIDC_CLIENT_ID must be configured.')
@@ -92,12 +97,6 @@ if (
   /^0+$/.test(productionDatabase.database_id.replaceAll('-', ''))
 ) {
   errors.push('The DB binding must use a real D1 database_id.')
-}
-if (!sandboxDatabase?.database_id || /^0+$/.test(sandboxDatabase.database_id.replaceAll('-', ''))) {
-  errors.push('The SANDBOX_DB binding must use a real D1 database_id.')
-}
-if (productionDatabase?.database_id === sandboxDatabase?.database_id) {
-  errors.push('Production and Sandbox must use different D1 databases.')
 }
 if (!config.triggers?.crons?.includes('*/2 * * * *')) {
   errors.push('The two-minute payment reconciliation schedule must be configured.')

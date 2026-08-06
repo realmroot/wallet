@@ -2,10 +2,27 @@ import { expect, test } from '@playwright/test'
 
 const walletAddress = '0x1111111111111111111111111111111111111111'
 const appOrigin = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:6230'
+const baseMainnetNetwork = {
+  id: 'eip155:8453',
+  alias: 'base',
+  name: 'Base',
+  mode: 'production',
+  family: 'evm',
+  asset: {
+    symbol: 'USDC',
+    address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+    decimals: 6,
+  },
+  nativeSymbol: 'ETH',
+  explorerOrigin: 'https://basescan.org',
+  paymentsEnabled: false,
+  faucetAssets: [],
+}
 const baseSepoliaNetwork = {
   id: 'eip155:84532',
   alias: 'base-sepolia',
   name: 'Base Sepolia',
+  mode: 'sandbox',
   family: 'evm',
   asset: {
     symbol: 'USDC',
@@ -33,6 +50,7 @@ const solanaDevnetNetwork = {
   id: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
   alias: 'solana-devnet',
   name: 'Solana Devnet',
+  mode: 'sandbox',
   family: 'solana',
   asset: {
     symbol: 'USDC',
@@ -48,6 +66,7 @@ const grant = {
   id: 'grant-1',
   agentIssuer: 'https://fa.test/api/auth',
   agentSubject: 'agent-codex',
+  mode: 'sandbox',
   name: 'Local Codex',
   totalLimit: '10000000',
   spentTotal: '25000',
@@ -77,9 +96,8 @@ test.beforeEach(async ({ page }) => {
         clientId: 'agent-wallet-web',
         audience: `${appOrigin}/api`,
         agentIssuer: 'https://fa.test/api/auth',
-        environment: 'production',
-        defaultNetwork: 'eip155:84532',
-        networks: [baseSepoliaNetwork, worldSepoliaNetwork],
+        defaultNetwork: 'eip155:8453',
+        networks: [baseMainnetNetwork, baseSepoliaNetwork, worldSepoliaNetwork],
         cdpProjectId: null,
       },
     }),
@@ -88,6 +106,7 @@ test.beforeEach(async ({ page }) => {
     route.fulfill({
       json: {
         issuer: 'https://fa.test/api/auth',
+        authorization_endpoint: 'https://fa.test/api/auth/oauth2/authorize',
         agentinfo_endpoint: 'https://fa.test/api/auth/agentinfo',
       },
     }),
@@ -116,10 +135,9 @@ test.beforeEach(async ({ page }) => {
     }),
   )
   await page.route('**/api/overview*', (route) => {
-    const network =
-      new URL(route.request().url()).searchParams.get('network') === worldSepoliaNetwork.id
-        ? worldSepoliaNetwork
-        : baseSepoliaNetwork
+    const requestedNetwork = new URL(route.request().url()).searchParams.get('network')
+    const network = [baseMainnetNetwork, baseSepoliaNetwork, worldSepoliaNetwork]
+      .find((candidate) => candidate.id === requestedNetwork) ?? baseMainnetNetwork
     return route.fulfill({
       json: {
         user: {
@@ -211,7 +229,7 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
     await route.fulfill({ status: 204 })
   })
 
-  await page.goto('/')
+  await page.goto('/sandbox')
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   await expect(page.getByText('12.5 USDC')).toBeVisible()
   await expect(page.getByText('0.01 ETH')).toBeVisible()
@@ -246,12 +264,12 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   })
 
   await page.getByRole('link', { name: 'Activity' }).click()
-  await expect(page).toHaveURL('/activity')
+  await expect(page).toHaveURL('/sandbox/activity')
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
   await expect(page.getByText('Grant Updated')).toBeVisible()
 
   await page.getByRole('link', { name: 'Agents' }).click()
-  await expect(page).toHaveURL('/agents')
+  await expect(page).toHaveURL('/sandbox/agents')
   await expect(page.getByRole('heading', { name: 'Agents' })).toBeVisible()
   await page.getByRole('button', { name: 'Edit' }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
@@ -263,7 +281,7 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect(page.getByRole('dialog')).not.toBeVisible()
 
   await page.getByRole('link', { name: 'Settings' }).click()
-  await expect(page).toHaveURL('/settings')
+  await expect(page).toHaveURL('/sandbox/settings')
   await expect(page.getByRole('heading', { name: 'Settings' })).toBeVisible()
   await expect(page.getByText('OIDC subject')).toBeVisible()
   await expect(page.getByText(
@@ -271,17 +289,17 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   )).toBeVisible()
 
   await page.getByRole('link', { name: 'Payments' }).click()
-  await expect(page).toHaveURL('/payments')
+  await expect(page).toHaveURL('/sandbox/payments')
   await expect(page.getByRole('heading', { name: 'Payments' })).toBeVisible()
 
   await page.getByRole('link', { name: 'Overview' }).click()
-  await expect(page).toHaveURL('/')
+  await expect(page).toHaveURL('/sandbox/')
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   expect(await page.evaluate(() => sessionStorage.getItem('menu-transition-seen'))).toBeNull()
 })
 
 test('uses the selected network for block explorer links', async ({ page }) => {
-  await page.goto('/')
+  await page.goto('/sandbox')
 
   await expect(page.getByRole('link', { name: 'View wallet in the block explorer' })).toHaveAttribute(
     'href',
@@ -294,17 +312,17 @@ test('uses the selected network for block explorer links', async ({ page }) => {
 })
 
 test('keeps non-default network routes across internal navigation', async ({ page }) => {
-  await page.goto('/chains/world-sepolia')
+  await page.goto('/sandbox/chains/world-sepolia')
   await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
   await expect(page.getByLabel('Network view')).toHaveValue('eip155:4801')
   await expect(page.locator('#main-content').getByText('World Sepolia', { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: 'Activity' }).click()
-  await expect(page).toHaveURL('/chains/world-sepolia/activity')
+  await expect(page).toHaveURL('/sandbox/chains/world-sepolia/activity')
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
 
   await page.getByLabel('Network view').selectOption('eip155:84532')
-  await page.waitForURL('/activity')
+  await page.waitForURL('/sandbox/activity')
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
 })
 
@@ -319,7 +337,6 @@ test('creates only the account family required by the selected network', async (
         clientId: 'agent-wallet-web',
         audience: `${appOrigin}/api`,
         agentIssuer: 'https://fa.test/api/auth',
-        environment: 'sandbox',
         defaultNetwork: baseSepoliaNetwork.id,
         networks,
         cdpProjectId: 'cdp-project',
@@ -356,7 +373,7 @@ test('creates only the account family required by the selected network', async (
     })
   })
 
-  await page.goto('/')
+  await page.goto('/sandbox')
   await expect(page.getByRole('button', { name: 'Set up EVM wallet' })).toBeVisible()
   await page.getByRole('button', { name: 'Set up EVM wallet' }).click()
   const evmDialog = page.getByRole('dialog')
@@ -366,7 +383,7 @@ test('creates only the account family required by the selected network', async (
   await evmDialog.getByRole('button', { name: 'Cancel' }).click()
 
   await page.getByLabel('Network view').selectOption(solanaDevnetNetwork.id)
-  await expect(page).toHaveURL('/chains/solana-devnet')
+  await expect(page).toHaveURL('/sandbox/chains/solana-devnet')
   await expect(page.getByRole('button', { name: 'Set up Solana wallet' })).toBeVisible()
   await page.getByRole('button', { name: 'Set up Solana wallet' }).click()
   const solanaDialog = page.getByRole('dialog')
@@ -385,6 +402,7 @@ test('validates and approves an Agent budget request', async ({ page }) => {
         status: 'pending',
         expiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
         grantId: null,
+        mode: 'production',
         agentIssuer: 'https://fa.test/api/auth',
         agentSubject: 'agent-budget-request',
         requestedName: 'Budget Agent',
@@ -415,7 +433,7 @@ test('validates and approves an Agent budget request', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'The Agent can now use its budget.' })).toBeVisible()
 })
 
-test('completes the OIDC callback and renders the requested page', async ({ page }) => {
+test('completes the shared OIDC callback and restores the requested product mode', async ({ page }) => {
   let tokenExchange: Record<string, unknown> | null = null
   await page.route('**/api/oidc/token', async (route) => {
     tokenExchange = await route.request().postDataJSON()
@@ -432,13 +450,14 @@ test('completes the OIDC callback and renders the requested page', async ({ page
   await page.goto('/')
   await page.evaluate(() => {
     localStorage.clear()
+    sessionStorage.setItem('skip-fixture-auth', 'true')
     sessionStorage.setItem('agent-wallet.state', 'callback-state')
     sessionStorage.setItem('agent-wallet.verifier', 'v'.repeat(64))
-    sessionStorage.setItem('agent-wallet.return_to', '/activity')
+    sessionStorage.setItem('agent-wallet.return_to', '/sandbox/activity')
   })
   await page.goto('/oidc/callback?code=authorization-code&state=callback-state')
 
-  await expect(page).toHaveURL('/activity')
+  await expect(page).toHaveURL('/sandbox/activity')
   await expect(page.getByRole('heading', { name: 'Activity' })).toBeVisible()
   await expect.poll(() => tokenExchange).toEqual({
     grantType: 'authorization_code',
@@ -454,109 +473,26 @@ test('completes the OIDC callback and renders the requested page', async ({ page
   expect(await page.evaluate(() => localStorage.getItem('agent-wallet.refresh_token'))).toBeNull()
 })
 
-test('switches environments through the shared session without visible OIDC navigation', async ({ page }) => {
-  let tokenExchange: Record<string, unknown> | null = null
-  let exchangeComplete = false
-  let discoveryRequested = false
-  let observeDiscovery = false
-  await page.route('**/api/sandbox/config', (route) =>
-    route.fulfill({
-      json: {
-        appOrigin,
-        appBaseUrl: `${appOrigin}/sandbox`,
-        oidcIssuer: 'https://fa.test/api/auth',
-        clientId: 'agent-wallet-web',
-        audience: `${appOrigin}/api/sandbox`,
-        agentIssuer: 'https://fa.test/api/auth',
-        environment: 'sandbox',
-        defaultNetwork: 'eip155:84532',
-        networks: [baseSepoliaNetwork],
-        cdpProjectId: null,
-      },
-    }),
+test('switches product modes without changing API identity or session', async ({ page }) => {
+  const requestedApiUrls: string[] = []
+  page.on('request', (request) => {
+    if (new URL(request.url()).pathname.startsWith('/api/')) requestedApiUrls.push(request.url())
+  })
+
+  await page.goto('/sandbox')
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await expect(page.getByLabel('Network view')).toHaveValue('eip155:84532')
+
+  await page.getByRole('link', { name: 'Production' }).click()
+  await page.waitForURL(appOrigin + '/')
+  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
+  await expect(page.getByLabel('Network view')).toHaveValue('eip155:8453')
+  expect(requestedApiUrls.some((url) => new URL(url).pathname.startsWith('/api/sandbox'))).toBe(false)
+  expect(await page.evaluate(() => localStorage.getItem('agent-wallet.access_token'))).toBe(
+    'browser-test-token',
   )
-  await page.route('**/api/sandbox/overview*', async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 250))
-    await route.fulfill({
-      json: {
-        user: {
-          id: 'sandbox-user',
-          issuer: 'https://fa.test/api/auth',
-          subject: 'user-1',
-          email: 'owner@example.com',
-          cdpUserId: null,
-          accounts: [],
-          pausedAt: null,
-        },
-        grants: [],
-        payments: [],
-        auditEvents: [],
-        runtime: {
-          network: 'eip155:84532',
-          family: 'evm',
-          account: null,
-          balances: [],
-          balanceStatus: 'unavailable',
-          faucetAssets: [],
-        },
-      },
-    })
-  })
-  await page.route('**/api/sandbox/oidc/token', async (route) => {
-    tokenExchange = await route.request().postDataJSON()
-    await new Promise((resolve) => setTimeout(resolve, 150))
-    exchangeComplete = true
-    await route.fulfill({
-      json: {
-        access_token: 'sandbox-access-token',
-        refresh_token: 'rotated-shared-refresh-token',
-        expires_in: 3600,
-      },
-    })
-  })
-  await page.route('https://fa.test/api/auth/.well-known/openid-configuration', (route) => {
-    if (!observeDiscovery) return route.fallback()
-    discoveryRequested = true
-    return route.abort()
-  })
-  const walletNavigations: Array<{ path: string; exchangeComplete: boolean }> = []
-  page.on('framenavigated', (frame) => {
-    const url = new URL(frame.url())
-    if (frame === page.mainFrame() && url.origin === appOrigin) {
-      walletNavigations.push({ path: url.pathname, exchangeComplete })
-    }
-  })
-
-  await page.goto('/')
-  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
-  await page.evaluate(() => {
-    localStorage.setItem('agent-wallet.refresh_token', 'production-refresh-token')
-  })
-  observeDiscovery = true
-  await page.getByRole('link', { name: 'Sandbox' }).click()
-  await expect(page.getByText('Loading your wallet…')).toBeVisible()
-  await page.waitForURL(`${appOrigin}/sandbox`)
-  await expect(page.getByText('Loading your wallet…')).toBeVisible()
-  await expect(page.locator('.dashboard-skeleton')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: 'Overview' })).toBeVisible()
-
-  expect(tokenExchange).toEqual({
-    grantType: 'refresh_token',
-    refreshToken: 'production-refresh-token',
-  })
-  expect(discoveryRequested).toBe(false)
-  expect(walletNavigations.filter(({ path }) => path === '/sandbox')).toEqual([
-    { path: '/sandbox', exchangeComplete: true },
-  ])
-  await expect
-    .poll(() => page.evaluate(() => localStorage.getItem('agent-wallet.sandbox.access_token')))
-    .toBe('sandbox-access-token')
-  expect(
-    await page.evaluate(() => localStorage.getItem('agent-wallet.session.refresh_token')),
-  ).toBe('rotated-shared-refresh-token')
 })
-
-test('signs out of both Wallet environments', async ({ page }) => {
+test('signs out of the shared Wallet session and clears legacy Sandbox tokens', async ({ page }) => {
   const revokedTokens: string[] = []
   await page.route('**/api/oidc/revoke', async (route) => {
     revokedTokens.push((await route.request().postDataJSON()).token)
@@ -575,10 +511,7 @@ test('signs out of both Wallet environments', async ({ page }) => {
   await navigation
   await page.waitForLoadState()
 
-  await expect.poll(() => revokedTokens.sort()).toEqual([
-    'production-refresh-token',
-    'sandbox-refresh-token',
-  ])
+  await expect.poll(() => revokedTokens).toEqual(['production-refresh-token'])
   expect(
     await page.evaluate(() =>
       Object.keys(localStorage).filter((key) => key.startsWith('agent-wallet')),

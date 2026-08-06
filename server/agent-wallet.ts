@@ -14,46 +14,52 @@ import {
 export function buildAgentWallet(
   env: Env,
   user: WalletUser | null,
-  grant: AgentGrant | null,
+  grants: AgentGrant[],
   runtimes: WalletRuntime[],
 ): AgentWallet {
   const now = Date.now()
-  const remainingTotal = grant
-    ? nonnegativeDifference(grant.totalLimit, grant.spentTotal)
-    : 0n
-  const remainingPeriod =
-    grant?.periodLimit ? nonnegativeDifference(grant.periodLimit, grant.periodSpent) : null
-
-  const budget: AgentWallet['budget'] = grant
-    ? {
-        id: grant.id,
-        name: grant.name,
-        status: grant.pausedAt
-          ? 'paused'
-          : grant.expiresAt && new Date(grant.expiresAt).getTime() <= now
-            ? 'expired'
-            : 'active',
-        limits: {
-          total: grant.totalLimit,
-          perPayment: grant.perTransactionLimit,
-          period: { kind: grant.periodKind, amount: grant.periodLimit },
-        },
-        usage: { total: grant.spentTotal, period: grant.periodSpent },
-        remaining: {
-          total: remainingTotal.toString(),
-          period: remainingPeriod?.toString() ?? null,
-        },
-        restrictions: {
-          merchantOrigins: grant.allowedOrigins,
-          recipients: grant.allowedRecipients,
-        },
-        expiresAt: grant.expiresAt,
-      }
-    : null
+  const budgets: AgentWallet['budgets'] = grants.map((grant) => {
+    const remainingTotal = nonnegativeDifference(grant.totalLimit, grant.spentTotal)
+    const remainingPeriod = grant.periodLimit
+      ? nonnegativeDifference(grant.periodLimit, grant.periodSpent)
+      : null
+    return {
+      id: grant.id,
+      mode: grant.mode,
+      name: grant.name,
+      status: grant.pausedAt
+        ? 'paused'
+        : grant.expiresAt && new Date(grant.expiresAt).getTime() <= now
+          ? 'expired'
+          : 'active',
+      limits: {
+        total: grant.totalLimit,
+        perPayment: grant.perTransactionLimit,
+        period: { kind: grant.periodKind, amount: grant.periodLimit },
+      },
+      usage: { total: grant.spentTotal, period: grant.periodSpent },
+      remaining: {
+        total: remainingTotal.toString(),
+        period: remainingPeriod?.toString() ?? null,
+      },
+      restrictions: {
+        merchantOrigins: grant.allowedOrigins,
+        recipients: grant.allowedRecipients,
+      },
+      expiresAt: grant.expiresAt,
+    }
+  })
 
   return {
-    budget,
+    budgets,
     networks: walletNetworks(env).map((definition) => {
+      const grant = grants.find((candidate) => candidate.mode === definition.mode) ?? null
+      const remainingTotal = grant
+        ? nonnegativeDifference(grant.totalLimit, grant.spentTotal)
+        : 0n
+      const remainingPeriod = grant?.periodLimit
+        ? nonnegativeDifference(grant.periodLimit, grant.periodSpent)
+        : null
       const runtime = runtimes.find((candidate) => candidate.network === definition.id) ?? null
       const account = user?.accounts.find((candidate) => candidate.family === definition.family) ?? null
       const blockers: AgentWalletBlocker[] = []
@@ -92,6 +98,7 @@ export function buildAgentWallet(
 
       return {
         network: definition.id,
+        mode: definition.mode,
         name: definition.name,
         family: definition.family,
         paymentsEnabled: networkPaymentsEnabled(env, definition.id),

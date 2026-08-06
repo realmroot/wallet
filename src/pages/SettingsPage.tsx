@@ -7,7 +7,7 @@ import { delegationNeedsRenewal } from '../lib/format'
 import { PageError } from './DashboardPage'
 import { Copy, Droplets, ExternalLink, KeyRound, Pause, Play, ShieldCheck, UserRound, WalletCards } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
-import { blockExplorerAddressUrl, selectedNetwork } from '../environment'
+import { blockExplorerAddressUrl, selectedNetwork, walletMode } from '../environment'
 import { ProvisionWallet } from '../cdp'
 
 export function SettingsPage({ config }: { config: PublicConfig }) {
@@ -42,7 +42,7 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
       {overview ? (
         <div className="settings-grid">
           <SettingsCard icon={<WalletCards size={19} />} title="Selected network">
-            <SettingsRow label="Environment" value={config.environment === 'sandbox' ? 'Sandbox' : 'Production'} />
+            <SettingsRow label="Wallet mode" value={walletMode === 'sandbox' ? 'Sandbox' : 'Production'} />
             <SettingsRow label="Network" value={network.name} />
             <SettingsRow label="Account family" value={network.family === 'evm' ? 'EVM' : 'Solana'} />
             <SettingsRow
@@ -131,7 +131,7 @@ export function SettingsPage({ config }: { config: PublicConfig }) {
             <SettingsRow label="Issuer" value={user?.issuer ?? config.oidcIssuer} mono />
           </SettingsCard>
 
-          {config.environment === 'sandbox' ? (
+          {walletMode === 'sandbox' ? (
             <SettingsCard icon={<Droplets size={19} />} title="Testnet funding">
               <p className="settings-help">
                 {overview.runtime.faucetAssets.length > 0

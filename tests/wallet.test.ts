@@ -15,8 +15,7 @@ import {
 } from '../server/signer'
 import { paymentRequiredSchema } from '../shared/contracts'
 import { buildAgentWallet } from '../server/agent-wallet'
-import { createApp } from '../server/app'
-import { resolveWalletRequest, sandboxBindings } from '../server/environment'
+import { walletBindings } from '../server/runtime-config'
 import { calculateJwkThumbprint, exportJWK, generateKeyPair, importJWK, SignJWT } from 'jose'
 import { getDefaultAsset } from '@x402/evm'
 import { encodeAbiParameters, encodeEventTopics, erc20Abi } from 'viem'
@@ -36,12 +35,6 @@ const budgetRequestsUrl = 'https://wallet.test/api/agent/budget-requests'
 const agentWalletUrl = 'https://wallet.test/api/agent/wallet'
 const ownerSubject = 'user-1'
 const agentSubject = 'agent-1'
-const configuredNetworks = [
-  'eip155:84532',
-  'eip155:4801',
-  'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-]
-
 type AgentOpenApiNetworkContract = {
   components: {
     schemas: {
@@ -227,12 +220,10 @@ describe('Agent Wallet', () => {
     expect(hasMatchingSolanaTransfer(transaction, { ...payment, amount: '25001' })).toBe(false)
   })
 
-  it('registers every configured Sandbox network with canonical USDC', () => {
-    expect(walletNetworks(sandboxBindings(env)).map((network) => network.id)).toEqual([
-      'eip155:84532',
-      'eip155:4801',
-      'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-    ])
+  it('registers mainnet and Sandbox networks in one Wallet service', () => {
+    expect(walletNetworks(walletBindings(env)).map((network) => network.id)).toEqual(walletNetworkIds)
+    expect(walletNetworkDefinition('eip155:8453').mode).toBe('production')
+    expect(walletNetworkDefinition('eip155:84532').mode).toBe('sandbox')
     expect(walletNetworkDefinition('eip155:4801').asset.address).toBe(
       '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88',
     )
@@ -243,7 +234,7 @@ describe('Agent Wallet', () => {
 
   it('calculates the maximum amount the current Agent can pay', () => {
     const wallet = buildAgentWallet(
-      sandboxBindings(env),
+      walletBindings(env),
       {
         id: 'user-1',
         issuer: humanIssuer,
@@ -258,10 +249,11 @@ describe('Agent Wallet', () => {
         }],
         pausedAt: null,
       },
-      {
+      [{
         id: 'grant-1',
         agentIssuer,
         agentSubject,
+        mode: 'sandbox',
         name: 'Test Agent',
         totalLimit: '100000',
         spentTotal: '20000',
@@ -274,7 +266,7 @@ describe('Agent Wallet', () => {
         expiresAt: null,
         pausedAt: null,
         revokedAt: null,
-      },
+      }],
       [{
         network: 'eip155:84532',
         family: 'evm',
@@ -297,13 +289,14 @@ describe('Agent Wallet', () => {
       }],
     )
 
-    expect(wallet.networks[0]?.payment).toEqual({
+    const sandboxNetwork = wallet.networks.find((network) => network.network === 'eip155:84532')
+    expect(sandboxNetwork?.payment).toEqual({
       ready: true,
       maximumAmount: '25000',
       blockers: [],
     })
-    expect(wallet.budget?.remaining.total).toBe('80000')
-    expect(wallet.budget?.remaining.period).toBe('25000')
+    expect(wallet.budgets[0]?.remaining.total).toBe('80000')
+    expect(wallet.budgets[0]?.remaining.period).toBe('25000')
   })
 
   it('uses the canonical USDC asset for Base Mainnet and Base Sepolia', () => {
@@ -327,18 +320,6 @@ describe('Agent Wallet', () => {
     expect(discovery.headers.get('link')).toContain('rel="service-desc"')
     expect(await discovery.json()).toMatchObject({
       servers: [{ url: '.' }],
-      'x-wallet-environment': {
-        name: 'production',
-        defaultNetwork: 'eip155:84532',
-        networks: expect.arrayContaining([
-          expect.objectContaining({ id: 'eip155:84532', paymentsEnabled: true }),
-          expect.objectContaining({ id: 'eip155:4801', paymentsEnabled: true }),
-          expect.objectContaining({
-            id: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
-            paymentsEnabled: true,
-          }),
-        ]),
-      },
       components: {
         securitySchemes: {
           RealmrootOAuth: {
@@ -478,7 +459,7 @@ describe('Agent Wallet', () => {
                   properties: {
                     network: {
                       enum: walletNetworkIds,
-                      example: 'eip155:84532',
+                      example: 'eip155:8453',
                     },
                   },
                 },
@@ -489,7 +470,7 @@ describe('Agent Wallet', () => {
             properties: {
               network: {
                 enum: walletNetworkIds,
-                example: 'eip155:84532',
+                example: 'eip155:8453',
               },
             },
           },
@@ -500,7 +481,7 @@ describe('Agent Wallet', () => {
                   properties: {
                     network: {
                       enum: walletNetworkIds,
-                      example: 'eip155:84532',
+                      example: 'eip155:8453',
                     },
                     payTo: {
                       description:
@@ -519,7 +500,7 @@ describe('Agent Wallet', () => {
                     properties: {
                       network: {
                         enum: walletNetworkIds,
-                        example: 'eip155:84532',
+                        example: 'eip155:8453',
                       },
                     },
                   },
@@ -531,7 +512,7 @@ describe('Agent Wallet', () => {
             properties: {
               network: {
                 enum: walletNetworkIds,
-                example: 'eip155:84532',
+                example: 'eip155:8453',
               },
             },
           },
@@ -553,210 +534,23 @@ describe('Agent Wallet', () => {
     expect(rootAlias.headers.get('content-type')).not.toContain('application/json')
   })
 
-  it('exposes Sandbox through an explicit isolated API prefix', async () => {
-    const configResponse = await SELF.fetch('https://wallet.test/api/sandbox/config')
+  it('keeps Sandbox as a product view on the single Wallet API', async () => {
+    const configResponse = await SELF.fetch('https://wallet.test/api/config')
     expect(configResponse.status).toBe(200)
     expect(await configResponse.json()).toMatchObject({
       appOrigin: 'https://wallet.test',
-      appBaseUrl: 'https://wallet.test/sandbox',
-      audience: 'https://wallet.test/api/sandbox',
-      environment: 'sandbox',
-      defaultNetwork: 'eip155:84532',
+      appBaseUrl: 'https://wallet.test',
+      audience: 'https://wallet.test/api',
+      defaultNetwork: 'eip155:8453',
       networks: expect.arrayContaining([
-        expect.objectContaining({ id: 'eip155:84532', paymentsEnabled: true }),
+        expect.objectContaining({ id: 'eip155:8453', mode: 'production', paymentsEnabled: false }),
+        expect.objectContaining({ id: 'eip155:84532', mode: 'sandbox', paymentsEnabled: true }),
       ]),
     })
 
-    const root = await SELF.fetch('https://wallet.test/api/sandbox')
-    expect(root.status).toBe(200)
-    expect(root.headers.get('link')).toContain(
-      'https://wallet.test/api/sandbox/openapi.json',
-    )
-    expect(await root.json()).toMatchObject({
-      info: { title: 'Agent Wallet Sandbox API' },
-      servers: [{ url: '.' }],
-      'x-wallet-environment': {
-        name: 'sandbox',
-        defaultNetwork: 'eip155:84532',
-        networks: expect.arrayContaining([
-          expect.objectContaining({ id: 'eip155:84532', paymentsEnabled: true }),
-        ]),
-      },
-    })
-
-    const contract = await SELF.fetch('https://wallet.test/api/sandbox/openapi.json')
-    expect(contract.status).toBe(200)
-    expect(await contract.json()).toMatchObject({
-      servers: [{ url: '.' }],
-      'x-cli-config': {
-        profiles: {
-          default: {
-            credentials: {
-              RealmrootOAuth: {
-                auth: {
-                  params: {
-                    scopes: 'wallet:read wallet:budget:request wallet:x402:pay',
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-      paths: {
-        '/agent/wallet': {
-          get: {
-            responses: {
-              200: {
-                content: {
-                  'application/json': { schema: { $ref: '#/components/schemas/AgentWallet' } },
-                },
-              },
-            },
-          },
-        },
-        '/x402/payments': {
-          post: {
-            responses: {
-              200: {
-                content: {
-                  'application/json': { schema: { $ref: '#/components/schemas/PaymentResult' } },
-                },
-              },
-            },
-          },
-        },
-        '/x402/payments/{paymentId}': {
-          get: {
-            responses: {
-              200: {
-                content: {
-                  'application/json': { schema: { $ref: '#/components/schemas/AgentPayment' } },
-                },
-              },
-            },
-          },
-        },
-      },
-      components: {
-        schemas: {
-          AgentWallet: {
-            properties: {
-              networks: {
-                items: {
-                  properties: {
-                    network: {
-                      enum: walletNetworkIds,
-                      example: 'eip155:84532',
-                    },
-                  },
-                },
-              },
-            },
-          },
-          AgentPayment: {
-            properties: {
-              network: {
-                enum: walletNetworkIds,
-                example: 'eip155:84532',
-              },
-            },
-          },
-          PaymentRequired: {
-            properties: {
-              accepts: {
-                items: {
-                  properties: {
-                    network: {
-                      enum: walletNetworkIds,
-                      example: 'eip155:84532',
-                    },
-                  },
-                },
-              },
-            },
-          },
-          PaymentResult: {
-            properties: {
-              paymentPayload: {
-                properties: {
-                  accepted: {
-                    properties: {
-                      network: {
-                        enum: walletNetworkIds,
-                        example: 'eip155:84532',
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    })
+    expect((await SELF.fetch('https://wallet.test/api/sandbox')).status).toBe(404)
+    expect((await SELF.fetch('https://wallet.test/api/sandbox/openapi.json')).status).toBe(404)
   })
-
-  it('publishes a profile-stable network schema with environment-specific defaults', async () => {
-    const app = createApp()
-    const bindings = {
-      APP_ORIGIN: 'https://wallet.test',
-      OIDC_ISSUER: 'https://fa.test/api/auth',
-      OIDC_CLIENT_ID: 'agent-wallet-web',
-      SIGNER_MODE: 'cdp',
-      WALLET_NETWORKS: 'eip155:8453,eip155:137',
-      PAYMENT_NETWORKS: 'eip155:8453',
-      SANDBOX_WALLET_NETWORKS: 'eip155:84532,eip155:4801',
-      SANDBOX_PAYMENT_NETWORKS: 'eip155:84532,eip155:4801',
-    } as Env
-
-    const productionRequest = resolveWalletRequest(
-      new Request('https://wallet.test/api/openapi.json'),
-      bindings,
-    )
-    const sandboxRequest = resolveWalletRequest(
-      new Request('https://wallet.test/api/sandbox/openapi.json'),
-      bindings,
-    )
-    const production = await app.fetch(productionRequest.request, productionRequest.env)
-    const sandbox = await app.fetch(sandboxRequest.request, sandboxRequest.env)
-    expect(production.status).toBe(200)
-    expect(sandbox.status).toBe(200)
-
-    const productionDocument = await production.json<AgentOpenApiNetworkContract>()
-    const sandboxDocument = await sandbox.json<AgentOpenApiNetworkContract>()
-    expect(paymentRequiredNetworkSchema(productionDocument)).toMatchObject({
-      enum: walletNetworkIds,
-      example: 'eip155:8453',
-    })
-    expect(paymentRequiredNetworkSchema(sandboxDocument)).toMatchObject({
-      enum: walletNetworkIds,
-      example: 'eip155:84532',
-    })
-  })
-
-  it('validates Sandbox DPoP proofs against the public Sandbox URL', async () => {
-    const sandboxWalletUrl = 'https://wallet.test/api/sandbox/agent/wallet'
-    const agentToken = await createAgentToken(
-      true,
-      ['wallet:read'],
-      'https://wallet.test/api/sandbox',
-    )
-    const response = await SELF.fetch(sandboxWalletUrl, {
-      headers: {
-        authorization: `DPoP ${agentToken}`,
-        dpop: await dpopProof(agentToken, sandboxWalletUrl, 'GET'),
-      },
-    })
-
-    expect(response.status, await response.clone().text()).toBe(200)
-    expect(await response.json()).toMatchObject({
-      networks: expect.arrayContaining([
-        expect.objectContaining({ network: 'eip155:84532' }),
-      ]),
-    })
-  })
-
   it('shows only the Wallet delegated to the current Agent', async () => {
     const token = await humanToken()
     await provisionAndGrant(token)
@@ -771,7 +565,8 @@ describe('Agent Wallet', () => {
     expect(response.status, await response.clone().text()).toBe(200)
     const status = await response.json()
     expect(status).toMatchObject({
-      budget: {
+      budgets: [{
+        mode: 'sandbox',
         name: 'Local Codex',
         limits: {
           total: '1000000',
@@ -781,7 +576,7 @@ describe('Agent Wallet', () => {
             amount: '250000',
           },
         },
-      },
+      }],
     })
     expect(
       (status as { networks: Array<{ network: string }> }).networks.find(
@@ -945,7 +740,7 @@ describe('Agent Wallet', () => {
   it('provisions a wallet and approves a budget requested by the payment operation', async () => {
     const token = await humanToken()
 
-    const initial = await SELF.fetch('https://wallet.test/api/overview', {
+    const initial = await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
       headers: { authorization: `Bearer ${token}` },
     })
     expect(initial.status, await initial.clone().text()).toBe(200)
@@ -1025,7 +820,7 @@ describe('Agent Wallet', () => {
     expect(body.paymentPayload.payload.authorization.from.toLowerCase()).toBe(walletAddress.toLowerCase())
     expect(body.paymentPayload.payload.authorization.value).toBe('25000')
 
-    const overview = await SELF.fetch('https://wallet.test/api/overview', {
+    const overview = await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
       headers: { authorization: `Bearer ${token}` },
     })
     const state = await overview.json<{
@@ -1051,7 +846,7 @@ describe('Agent Wallet', () => {
       ).status,
     ).toBe(200)
 
-    const overview = await SELF.fetch('https://wallet.test/api/overview', {
+    const overview = await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
       headers: { authorization: `Bearer ${token}` },
     })
     const state = await overview.json<{
@@ -1063,6 +858,50 @@ describe('Agent Wallet', () => {
       'eip155:4801',
       'eip155:84532',
     ])
+  })
+
+  it('keeps one Agent identity with independent Production and Sandbox budgets', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const productionRequest = await createBudgetRequest(agentToken, 'production')
+    expect(productionRequest.status).toBe(201)
+    const pending = await productionRequest.json<{ requestId: string; approvalUrl: string }>()
+    expect((await approveBudget(token, pending)).status).toBe(200)
+
+    const walletResponse = await SELF.fetch(agentWalletUrl, {
+      headers: {
+        authorization: `DPoP ${agentToken}`,
+        dpop: await dpopProof(agentToken, agentWalletUrl, 'GET'),
+      },
+    })
+    expect(walletResponse.status).toBe(200)
+    const wallet = await walletResponse.json<{
+      budgets: Array<{ mode: string; usage: { total: string } }>
+    }>()
+    expect(wallet.budgets).toEqual(expect.arrayContaining([
+      expect.objectContaining({ mode: 'production', usage: { total: '0', period: '0' } }),
+      expect.objectContaining({ mode: 'sandbox', usage: { total: '0', period: '0' } }),
+    ]))
+
+    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(200)
+
+    const sandboxOverview = await SELF.fetch(
+      'https://wallet.test/api/overview?network=eip155%3A84532',
+      { headers: { authorization: `Bearer ${token}` } },
+    )
+    const productionOverview = await SELF.fetch(
+      'https://wallet.test/api/overview?network=eip155%3A8453',
+      { headers: { authorization: `Bearer ${token}` } },
+    )
+    expect(await sandboxOverview.json()).toMatchObject({
+      grants: [expect.objectContaining({ mode: 'sandbox', spentTotal: '25000' })],
+      payments: [expect.objectContaining({ network: 'eip155:84532' })],
+    })
+    expect(await productionOverview.json()).toMatchObject({
+      grants: [expect.objectContaining({ mode: 'production', spentTotal: '0' })],
+      payments: [],
+    })
   })
 
   it('rejects duplicate requirements and payments above the Agent transaction limit', async () => {
@@ -1101,7 +940,7 @@ describe('Agent Wallet', () => {
       message:
         'The Solana payment recipient is not initialized on Solana Devnet. Use an address that already exists on-chain.',
     })
-    const overviewResponse = await SELF.fetch('https://wallet.test/api/overview', {
+    const overviewResponse = await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
       headers: { authorization: `Bearer ${token}` },
     })
     const state = await overviewResponse.json<{
@@ -1340,7 +1179,7 @@ describe('Agent Wallet', () => {
       transactionHash: transaction,
     })
     const state = await (
-      await SELF.fetch('https://wallet.test/api/overview', {
+      await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
         headers: { authorization: `Bearer ${token}` },
       })
     ).json<{
@@ -1371,7 +1210,7 @@ describe('Agent Wallet', () => {
     await provisionAndGrant(token)
     const agentToken = await createAgentToken()
     const state = await (
-      await SELF.fetch('https://wallet.test/api/overview', {
+      await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
         headers: { authorization: `Bearer ${token}` },
       })
     ).json<{ grants: Array<{ id: string }> }>()
@@ -1422,7 +1261,7 @@ describe('Agent Wallet', () => {
     await provisionAndGrant(token)
     const agentToken = await createAgentToken()
     const overview = await (
-      await SELF.fetch('https://wallet.test/api/overview', {
+      await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
         headers: { authorization: `Bearer ${token}` },
       })
     ).json<{ grants: Array<{ id: string }> }>()
@@ -1466,7 +1305,7 @@ describe('Agent Wallet', () => {
     expect((await pay(agentToken, allowed)).status).toBe(200)
 
     const state = await (
-      await SELF.fetch('https://wallet.test/api/overview', {
+      await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
         headers: { authorization: `Bearer ${token}` },
       })
     ).json<{
@@ -1689,6 +1528,7 @@ async function pay(
 async function provisionAndGrant(
   token: string,
   accounts: UpdateWalletInput['accounts'] = [{ family: 'evm', address: walletAddress }],
+  mode: 'production' | 'sandbox' = 'sandbox',
 ) {
   const provision = await SELF.fetch('https://wallet.test/api/wallet', {
     method: 'PUT',
@@ -1700,7 +1540,7 @@ async function provisionAndGrant(
   })
   expect(provision.status, await provision.clone().text()).toBe(204)
   const agentToken = await createAgentToken()
-  const pending = await (await createBudgetRequest(agentToken)).json<{
+  const pending = await (await createBudgetRequest(agentToken, mode)).json<{
     requestId: string
     approvalUrl: string
   }>()
@@ -1708,7 +1548,10 @@ async function provisionAndGrant(
   expect(approval.status, await approval.clone().text()).toBe(200)
 }
 
-async function createBudgetRequest(agentToken: string) {
+async function createBudgetRequest(
+  agentToken: string,
+  mode: 'production' | 'sandbox' = 'sandbox',
+) {
   return SELF.fetch(budgetRequestsUrl, {
     method: 'POST',
     headers: {
@@ -1716,7 +1559,7 @@ async function createBudgetRequest(agentToken: string) {
       dpop: await dpopProof(agentToken, budgetRequestsUrl, 'POST'),
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ name: 'Local Codex' }),
+    body: JSON.stringify({ mode, name: 'Local Codex' }),
   })
 }
 

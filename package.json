@@ -12,9 +12,8 @@
     "typecheck": "wrangler types worker-configuration.d.ts --include-runtime=false --env-file .dev.vars.example --config wrangler.toml && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate": "pnpm db:migrate:production --local && pnpm db:migrate:sandbox --local",
+    "db:migrate": "wrangler d1 migrations apply agent-wallet-production --local",
     "db:migrate:production": "wrangler d1 migrations apply agent-wallet-production",
-    "db:migrate:sandbox": "wrangler d1 migrations apply agent-wallet-sandbox",
     "e2e": "playwright test",
     "demo:merchant": "node examples/paid-service.mjs",
     "demo:merchant:real": "node examples/paid-service-real.mjs",
@@ -38,7 +37,7 @@
     "@x402/evm": "2.20.0",
     "@x402/hono": "2.20.0",
     "@x402/svm": "2.20.0",
-    "hono": "4.12.32",
+    "hono": "4.12.34",
     "jose": "6.2.4",
     "lucide-react": "^1.27.0",
     "oauth4webapi": "3.8.6",
@@ -69,6 +68,7 @@
   "pnpm": {
     "overrides": {
       "axios": "1.18.0",
+      "fast-uri": "3.1.5",
       "uuid": "11.1.1",
       "ws": "8.21.0"
     },

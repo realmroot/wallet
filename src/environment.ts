@@ -1,23 +1,25 @@
 import type { PublicConfig } from './api-client'
 
-export type WalletEnvironment = 'production' | 'sandbox'
+import type { WalletMode } from '../shared/contracts'
 
-export const walletEnvironment: WalletEnvironment =
+export const walletMode: WalletMode =
   location.pathname === '/sandbox' || location.pathname.startsWith('/sandbox/')
     ? 'sandbox'
     : 'production'
 
-export const appBasePath = walletEnvironment === 'sandbox' ? '/sandbox' : ''
-export const apiBasePath = walletEnvironment === 'sandbox' ? '/api/sandbox' : '/api'
-export const chainAlias = routeChainAlias(location.pathname, walletEnvironment)
+export const appBasePath = walletMode === 'sandbox' ? '/sandbox' : ''
+export const apiBasePath = '/api'
+export const chainAlias = routeChainAlias(location.pathname, walletMode)
 export const routerBasePath = `${appBasePath}${chainAlias ? `/chains/${chainAlias}` : ''}`
 
 export function selectedNetwork(config: PublicConfig) {
   if (chainAlias) {
-    const selected = config.networks.find((network) => network.alias === chainAlias)
+    const selected = config.networks.find(
+      (network) => network.alias === chainAlias && network.mode === walletMode,
+    )
     if (selected) return selected
   }
-  const fallback = config.networks.find((network) => network.id === config.defaultNetwork)
+  const fallback = config.networks.find((network) => network.mode === walletMode)
   if (!fallback) throw new Error('The default Wallet network is not enabled.')
   return fallback
 }
@@ -25,7 +27,9 @@ export function selectedNetwork(config: PublicConfig) {
 export function networkPath(config: PublicConfig, networkId: string, page = '/') {
   const network = config.networks.find((candidate) => candidate.id === networkId)
   if (!network) throw new Error('The Wallet network is not enabled.')
-  const chainPath = network.id === config.defaultNetwork ? '' : `/chains/${network.alias}`
+  if (network.mode !== walletMode) throw new Error('The Wallet network is outside the current mode.')
+  const defaultNetwork = config.networks.find((candidate) => candidate.mode === walletMode)
+  const chainPath = network.id === defaultNetwork?.id ? '' : `/chains/${network.alias}`
   return `${appBasePath}${chainPath}${page === '/' ? '' : page}`
 }
 
@@ -71,8 +75,8 @@ function blockExplorerOrigin(network: string) {
   return origins[network] ?? null
 }
 
-function routeChainAlias(pathname: string, environment: WalletEnvironment) {
-  const prefix = environment === 'sandbox' ? '/sandbox/chains/' : '/chains/'
+function routeChainAlias(pathname: string, mode: WalletMode) {
+  const prefix = mode === 'sandbox' ? '/sandbox/chains/' : '/chains/'
   if (!pathname.startsWith(prefix)) return null
   const alias = pathname.slice(prefix.length).split('/', 1)[0]
   return alias || null

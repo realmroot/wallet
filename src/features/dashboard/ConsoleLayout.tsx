@@ -1,11 +1,12 @@
 import type { PublicConfig } from '../../auth'
-import { beginEnvironmentSwitch, logout } from '../../auth'
+import { logout } from '../../auth'
 import {
+  appBasePath,
   networkPath,
   selectedNetwork,
-  type WalletEnvironment,
+  walletMode,
 } from '../../environment'
-import { TransitionScreen } from '../../components/TransitionScreen'
+import type { WalletMode } from '../../../shared/contracts'
 import {
   Activity,
   Bot,
@@ -15,7 +16,7 @@ import {
   Settings,
   WalletCards,
 } from 'lucide-react'
-import { useState, type MouseEvent, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Link, useLocation } from 'wouter'
 
 const navigation = [
@@ -37,33 +38,12 @@ export function ConsoleLayout({
 }) {
   const [pathname] = useLocation()
   const network = selectedNetwork(config)
-  const [switchingTo, setSwitchingTo] = useState<WalletEnvironment | null>(null)
-  const [switchError, setSwitchError] = useState<string | null>(null)
-  const switchEnvironment = (
-    event: MouseEvent<HTMLAnchorElement>,
-    target: WalletEnvironment,
-  ) => {
-    if (target === config.environment) {
-      event.preventDefault()
-      return
-    }
-    event.preventDefault()
-    setSwitchError(null)
-    setSwitchingTo(target)
-    void beginEnvironmentSwitch(
-      config,
-      target,
-      environmentReturnTo(network.alias, target, pathname),
-    ).catch((cause: unknown) => {
-      setSwitchingTo(null)
-      setSwitchError(cause instanceof Error ? cause.message : 'Environment switch failed.')
-    })
-  }
+  const visibleNetworks = config.networks.filter((candidate) => candidate.mode === walletMode)
   const signOut = async () => {
     try {
       await logout(config)
     } finally {
-      location.assign(config.appBaseUrl)
+      location.assign(`${config.appOrigin}${appBasePath}`)
     }
   }
 
@@ -75,18 +55,16 @@ export function ConsoleLayout({
           <span className="brand-symbol"><WalletCards size={18} /></span>
           <span>Agent Wallet</span>
         </Link>
-        <div className="environment-switcher" aria-label="Wallet environment">
+        <div className="environment-switcher" aria-label="Wallet mode">
           <a
-            aria-current={config.environment === 'production' ? 'true' : undefined}
+            aria-current={walletMode === 'production' ? 'true' : undefined}
             href={config.appOrigin}
-            onClick={(event) => switchEnvironment(event, 'production')}
           >
             Production
           </a>
           <a
-            aria-current={config.environment === 'sandbox' ? 'true' : undefined}
+            aria-current={walletMode === 'sandbox' ? 'true' : undefined}
             href={`${config.appOrigin}/sandbox`}
-            onClick={(event) => switchEnvironment(event, 'sandbox')}
           >
             Sandbox
           </a>
@@ -102,7 +80,7 @@ export function ConsoleLayout({
                 location.assign(networkPath(config, event.target.value, pathname))
               }}
             >
-              {config.networks.map((candidate) => (
+              {visibleNetworks.map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>{candidate.name}</option>
               ))}
             </select>
@@ -141,12 +119,13 @@ export function ConsoleLayout({
         </Link>
         <a
           className="mobile-environment"
-          href={config.environment === 'sandbox' ? config.appOrigin : `${config.appOrigin}/sandbox`}
-          onClick={(event) =>
-            switchEnvironment(event, config.environment === 'sandbox' ? 'production' : 'sandbox')
-          }
+          href={`${config.appOrigin}${productModeReturnTo(
+            network.alias,
+            walletMode === 'sandbox' ? 'production' : 'sandbox',
+            pathname,
+          )}`}
         >
-          {config.environment === 'sandbox' ? 'Sandbox' : 'Production'}
+          {walletMode === 'sandbox' ? 'Sandbox' : 'Production'}
         </a>
         <button className="icon-button" onClick={() => void signOut()} aria-label="Sign out">
           <LogOut size={18} />
@@ -172,17 +151,13 @@ export function ConsoleLayout({
           )
         })}
       </nav>
-      {switchingTo ? (
-        <TransitionScreen message="Loading your wallet…" overlay />
-      ) : null}
-      {switchError ? <div className="environment-switch-error" role="alert">{switchError}</div> : null}
     </div>
   )
 }
 
-function environmentReturnTo(
+function productModeReturnTo(
   alias: string,
-  target: WalletEnvironment,
+  target: WalletMode,
   page: string,
 ) {
   const targetAlias =
@@ -194,7 +169,8 @@ function environmentReturnTo(
           'solana-devnet': 'solana',
         }[alias]
   const chain = targetAlias ? `/chains/${targetAlias}` : ''
-  return `${chain}${page === '/' ? '' : page}` || '/'
+  const modeBase = target === 'sandbox' ? '/sandbox' : ''
+  return `${modeBase}${chain}${page === '/' ? '' : page}` || '/'
 }
 
 export function PageHeading({

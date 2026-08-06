@@ -18,12 +18,6 @@ database_name = "agent-wallet-production"
 database_id = "1f757b8a-f79d-40cf-be1f-c51cf80424b4"
 migrations_dir = "./migrations"
 
-[[d1_databases]]
-binding = "SANDBOX_DB"
-database_name = "agent-wallet-sandbox"
-database_id = "777afebc-07dc-4de7-b558-0d15d6c72022"
-migrations_dir = "./migrations"
-
 [vars]
 # Public application identity.
 APP_ORIGIN = "https://wallet.realmroot.dev"
@@ -32,11 +26,9 @@ OIDC_CLIENT_ID = "client_87c987abcddf4bb1b283794d626a0f43"
 CDP_PROJECT_ID = "16529c0d-6329-4510-83bc-66623d5292da"
 CDP_API_KEY_ID = "00130afb-da82-4fd0-9017-e5be16969d50"
 
-# Enabled networks. The first network is the environment default.
-WALLET_NETWORKS = "eip155:8453,eip155:137,eip155:42161,eip155:480,solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp"
-PAYMENT_NETWORKS = ""
-SANDBOX_WALLET_NETWORKS = "eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
-SANDBOX_PAYMENT_NETWORKS = "eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+# Enabled networks. The UI chooses the first network in the active product mode.
+WALLET_NETWORKS = "eip155:8453,eip155:84532,eip155:137,eip155:42161,eip155:480,eip155:4801,solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
+PAYMENT_NETWORKS = "eip155:84532,eip155:4801,solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1"
 SIGNER_MODE = "cdp"
 
 # Credential-free RPC endpoints only.

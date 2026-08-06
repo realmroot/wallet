@@ -122,6 +122,8 @@ export const createBudgetRequestRoute = createRoute({
   'x-cli-name': 'request',
   security: [{ RealmrootOAuth: [] }],
   summary: 'Request a budget',
+  description:
+    'Requests a controller-approved spending budget for either Production mainnets or Sandbox testnets. The authenticated Agent identity is shared across both modes, while their budgets and counters are independent.',
   request: {
     body: {
       required: true,
@@ -163,7 +165,7 @@ export const getAgentWalletRoute = createRoute({
   security: [{ RealmrootOAuth: [] }],
   summary: 'Show the current Agent wallet',
   description:
-    'Returns the authenticated Agent’s delegated Wallet budget, restrictions, readiness, and maximum payable atomic USDC amount without exposing controller account data.',
+    'Returns the authenticated Agent’s Production and Sandbox budgets plus per-network restrictions, readiness, and maximum payable atomic USDC amount without exposing controller account data.',
   responses: {
     200: {
       description: 'The Wallet view delegated to the authenticated Agent.',

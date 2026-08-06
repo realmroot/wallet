@@ -1,4 +1,5 @@
 import { arbitrum, base, baseSepolia, polygon, worldchain, worldchainSepolia } from 'viem/chains'
+import type { WalletMode } from '../shared/contracts'
 
 export const walletNetworkIds = [
   'eip155:8453',
@@ -13,14 +14,13 @@ export const walletNetworkIds = [
 
 export type WalletNetwork = (typeof walletNetworkIds)[number]
 export type AccountFamily = 'evm' | 'solana'
-export type WalletEnvironment = 'production' | 'sandbox'
 export type FaucetAsset = 'usdc' | 'native'
 
 export interface WalletNetworkDefinition {
   id: WalletNetwork
   alias: string
   name: string
-  environment: WalletEnvironment
+  mode: WalletMode
   family: AccountFamily
   asset: {
     symbol: 'USDC'
@@ -38,7 +38,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'eip155:8453',
     alias: 'base',
     name: 'Base',
-    environment: 'production',
+    mode: 'production',
     family: 'evm',
     asset: { symbol: 'USDC', address: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913', decimals: 6 },
     nativeSymbol: 'ETH',
@@ -50,7 +50,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'eip155:84532',
     alias: 'base-sepolia',
     name: 'Base Sepolia',
-    environment: 'sandbox',
+    mode: 'sandbox',
     family: 'evm',
     asset: { symbol: 'USDC', address: '0x036CbD53842c5426634e7929541eC2318f3dCF7e', decimals: 6 },
     nativeSymbol: 'ETH',
@@ -62,7 +62,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'eip155:137',
     alias: 'polygon',
     name: 'Polygon',
-    environment: 'production',
+    mode: 'production',
     family: 'evm',
     asset: { symbol: 'USDC', address: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359', decimals: 6 },
     nativeSymbol: 'POL',
@@ -74,7 +74,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'eip155:42161',
     alias: 'arbitrum',
     name: 'Arbitrum',
-    environment: 'production',
+    mode: 'production',
     family: 'evm',
     asset: { symbol: 'USDC', address: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831', decimals: 6 },
     nativeSymbol: 'ETH',
@@ -86,7 +86,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'eip155:480',
     alias: 'world',
     name: 'World Chain',
-    environment: 'production',
+    mode: 'production',
     family: 'evm',
     asset: { symbol: 'USDC', address: '0x79A02482A880bCE3F13e09Da970dC34db4CD24d1', decimals: 6 },
     nativeSymbol: 'ETH',
@@ -98,7 +98,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'eip155:4801',
     alias: 'world-sepolia',
     name: 'World Sepolia',
-    environment: 'sandbox',
+    mode: 'sandbox',
     family: 'evm',
     asset: { symbol: 'USDC', address: '0x66145f38cBAC35Ca6F1Dfb4914dF98F1614aeA88', decimals: 6 },
     nativeSymbol: 'ETH',
@@ -110,7 +110,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
     alias: 'solana',
     name: 'Solana',
-    environment: 'production',
+    mode: 'production',
     family: 'solana',
     asset: { symbol: 'USDC', address: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', decimals: 6 },
     nativeSymbol: 'SOL',
@@ -122,7 +122,7 @@ const definitions: readonly WalletNetworkDefinition[] = [
     id: 'solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1',
     alias: 'solana-devnet',
     name: 'Solana Devnet',
-    environment: 'sandbox',
+    mode: 'sandbox',
     family: 'solana',
     asset: { symbol: 'USDC', address: '4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU', decimals: 6 },
     nativeSymbol: 'SOL',
@@ -146,18 +146,13 @@ export function walletNetworkDefinition(value: string) {
   return definition
 }
 
-export function walletNetworkByAlias(alias: string, environment?: WalletEnvironment) {
-  const definition = byAlias.get(alias)
-  return definition && (!environment || definition.environment === environment) ? definition : null
+export function walletNetworkByAlias(alias: string) {
+  return byAlias.get(alias) ?? null
 }
 
 export function walletNetworks(env: Env) {
   const configured = configuredNetworkSet(env.WALLET_NETWORKS)
-  return definitions.filter(
-    (definition) =>
-      configured.has(definition.id) &&
-      (env.SIGNER_MODE === 'mock' || definition.environment === env.WALLET_ENVIRONMENT),
-  )
+  return definitions.filter((definition) => configured.has(definition.id))
 }
 
 export function defaultWalletNetwork(env: Env) {

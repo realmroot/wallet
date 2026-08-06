@@ -1,6 +1,5 @@
 import { forbidden, unauthorized } from './errors'
 import { requireAgentOperationPolicy, type AgentOperationId } from './agent-policy'
-import { publicRequestUrlHeader } from './environment'
 import {
   calculateJwkThumbprint,
   createLocalJWKSet,
@@ -185,7 +184,7 @@ async function verifyDpopProof(
     throw dpopUnauthorized('DPoP proof signature is invalid.')
   })
   const now = Math.floor(Date.now() / 1000)
-  const proofTarget = new URL(request.headers.get(publicRequestUrlHeader) ?? request.url)
+  const proofTarget = new URL(request.url)
   proofTarget.search = ''
   proofTarget.hash = ''
   if (payload.htm !== request.method) {

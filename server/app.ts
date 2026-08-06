@@ -68,7 +68,6 @@ import {
 } from './agent-policy'
 import { verifySettlement } from './settlement'
 import { createX402Payment } from './signer'
-import { walletEnvironments } from './environment'
 import {
   defaultWalletNetwork,
   networkPaymentsEnabled,
@@ -104,22 +103,18 @@ export function createApp() {
     .get('/healthz', (c) =>
       c.json({
         status: 'ok',
-        environment: c.env.WALLET_ENVIRONMENT,
         networks: walletNetworks(c.env).map((network) => network.id),
         signer: c.env.SIGNER_MODE,
       }),
     )
     .get('/readyz', async (c) => {
-      const environments = walletEnvironments(c.env)
-      const missing = environments.flatMap((env) =>
-        requiredConfiguration(env)
-          .filter((name) => !(env as unknown as Record<string, string | undefined>)[name])
-          .map((name) => `${env.WALLET_ENVIRONMENT}.${name}`),
+      const missing = requiredConfiguration(c.env).filter(
+        (name) => !(c.env as unknown as Record<string, string | undefined>)[name],
       )
       if (missing.length > 0) {
         return c.json({ status: 'not_ready', missing }, 503)
       }
-      await Promise.all(environments.map(checkDatabaseReadiness))
+      await checkDatabaseReadiness(c.env)
       return c.json({ status: 'ready' }, 200)
     })
     .route('/api', createApi(agentApi))
@@ -183,12 +178,12 @@ export function createHumanApi() {
           clientId: c.env.OIDC_CLIENT_ID,
           audience: c.env.OIDC_AUDIENCE,
           agentIssuer: c.env.OIDC_ISSUER,
-          environment: c.env.WALLET_ENVIRONMENT,
           defaultNetwork: defaultWalletNetwork(c.env).id,
           networks: walletNetworks(c.env).map((network) => ({
             id: network.id,
             alias: network.alias,
             name: network.name,
+            mode: network.mode,
             family: network.family,
             asset: network.asset,
             nativeSymbol: network.nativeSymbol,
@@ -479,7 +474,7 @@ function createAgentApi() {
         WalletRuntime[],
         string | null | undefined,
       ] =
-        state.user && state.grant
+        state.user && state.grants.length > 0
           ? await Promise.all([
               Promise.all(
                 walletNetworks(c.env)
@@ -508,7 +503,7 @@ function createAgentApi() {
         buildAgentWallet(
           c.env,
           state.user,
-          state.grant,
+          state.grants,
           walletRuntimes,
         ),
         200,
@@ -521,7 +516,13 @@ function createAgentApi() {
         createBudgetRequestRoute.operationId,
       )
       const input = c.req.valid('json')
-      const result = await createBudgetRequest(c.env.DB, principal, c.env.APP_BASE_URL, input.name)
+      const result = await createBudgetRequest(
+        c.env.DB,
+        principal,
+        walletModeBaseUrl(c.env, input.mode),
+        input.mode,
+        input.name,
+      )
       if (result.status !== 'pending') return c.json(result, 200)
       setBudgetRequestHeaders(c, result)
       return c.json(result, 201)
@@ -551,16 +552,22 @@ function createAgentApi() {
         hasJsonBody,
       )
       const idempotencyKey = headers['idempotency-key']
-      const budget = await createBudgetRequest(c.env.DB, principal, c.env.APP_BASE_URL)
+      const accepted = selectRequirement(paymentRequired, c.env)
+      if (!networkPaymentsEnabled(c.env, accepted.network)) {
+        throw forbidden(`Payments are disabled on ${accepted.network}.`)
+      }
+      const mode = walletNetworkDefinition(accepted.network).mode
+      const budget = await createBudgetRequest(
+        c.env.DB,
+        principal,
+        walletModeBaseUrl(c.env, mode),
+        mode,
+      )
       if (budget.status !== 'approved') {
         setBudgetRequestHeaders(c, budget)
         return c.json(budget, 202)
       }
 
-      const accepted = selectRequirement(paymentRequired, c.env)
-      if (!networkPaymentsEnabled(c.env, accepted.network)) {
-        throw forbidden(`Payments are disabled on ${accepted.network}.`)
-      }
       await validatePaymentRecipient(c.env, accepted.network, accepted.payTo)
       const requirementHash = await hashRequirement(paymentRequired)
       const reservation = await reservePayment(c.env.DB, {
@@ -696,27 +703,16 @@ function createAgentApi() {
   return api
 }
 
-function agentApiDocument(env: Env) {
+function agentApiDocument() {
   return {
     openapi: '3.1.0',
     info: {
-      title: env.WALLET_ENVIRONMENT === 'sandbox' ? 'Agent Wallet Sandbox API' : 'Agent Wallet API',
+      title: 'Agent Wallet API',
       version: '1.0.0',
       description:
         'A DPoP-protected x402 payer for delegated Agents. Inspect the delegated Wallet, request a budget, authorize payments, and confirm merchant settlements.',
     },
     servers: [{ url: '.' }],
-    'x-wallet-environment': {
-      name: env.WALLET_ENVIRONMENT,
-      defaultNetwork: defaultWalletNetwork(env).id,
-      networks: walletNetworks(env).map((network) => ({
-        id: network.id,
-        alias: network.alias,
-        name: network.name,
-        family: network.family,
-        paymentsEnabled: networkPaymentsEnabled(env, network.id),
-      })),
-    },
     tags: [
       { name: 'wallet', description: 'Inspect the Wallet delegated to the current Agent.' },
       { name: 'budget', description: 'Request and track controller-approved spending budgets.' },
@@ -824,8 +820,8 @@ function agentApiOpenApi(
   api: Pick<OpenAPIHono<AppEnv>, 'getOpenAPI31Document'>,
   env: Env,
 ) {
-  const document = api.getOpenAPI31Document(agentApiDocument(env))
-  constrainOpenApiNetworks(document, env)
+  const document = api.getOpenAPI31Document(agentApiDocument())
+  constrainOpenApiNetworks(document)
   const scheme = document.components?.securitySchemes?.RealmrootOAuth
   if (scheme && 'flows' in scheme && scheme.flows?.authorizationCode) {
     scheme.flows.authorizationCode.authorizationUrl = `${env.OIDC_ISSUER}/oauth2/authorize`
@@ -852,7 +848,6 @@ type MutableOpenApiSchema = {
 
 function constrainOpenApiNetworks(
   document: ReturnType<OpenAPIHono<AppEnv>['getOpenAPI31Document']>,
-  env: Env,
 ) {
   const schemas = document.components?.schemas as
     | Record<string, MutableOpenApiSchema>
@@ -869,7 +864,7 @@ function constrainOpenApiNetworks(
   }
 
   const networks = [...walletNetworkIds]
-  const example = defaultWalletNetwork(env).id
+  const example = walletNetworkIds[0]
   for (const schema of networkSchemas) {
     schema!.enum = networks
     schema!.example = example
@@ -947,7 +942,6 @@ function requiredConfiguration(env: Env) {
     'OIDC_ISSUER',
     'OIDC_CLIENT_ID',
     'OIDC_AUDIENCE',
-    'WALLET_ENVIRONMENT',
     'DEFAULT_WALLET_NETWORK',
     'WALLET_NETWORKS',
   ]
@@ -981,6 +975,10 @@ function selectedRequestNetwork(c: Context<AppEnv>) {
   const requested = c.req.query('network')
   if (!requested) return defaultWalletNetwork(c.env)
   const selected = walletNetworks(c.env).find((network) => network.id === requested)
-  if (!selected) throw badRequest('The requested Wallet network is not enabled in this environment.')
+  if (!selected) throw badRequest('The requested Wallet network is not enabled.')
   return selected
+}
+
+function walletModeBaseUrl(env: Env, mode: 'production' | 'sandbox') {
+  return mode === 'sandbox' ? `${env.APP_ORIGIN}/sandbox` : env.APP_ORIGIN
 }

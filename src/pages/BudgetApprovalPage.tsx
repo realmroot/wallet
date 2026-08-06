@@ -69,6 +69,7 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
   return (
     <ApprovalForm
       requestedName={request.data.requestedName}
+      mode={request.data.mode}
       agentIssuer={request.data.agentIssuer}
       agentSubject={request.data.agentSubject}
       busy={decision.isPending}
@@ -87,6 +88,7 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
 
 function ApprovalForm({
   requestedName,
+  mode,
   agentIssuer,
   agentSubject,
   busy,
@@ -95,6 +97,7 @@ function ApprovalForm({
   onDeny,
 }: {
   requestedName: string | null
+  mode: 'production' | 'sandbox'
   agentIssuer: string
   agentSubject: string
   busy: boolean
@@ -128,7 +131,7 @@ function ApprovalForm({
       </header>
       <div className="approval-layout">
         <section className="approval-context">
-          <p className="eyebrow">Agent budget request</p>
+          <p className="eyebrow">{mode === 'sandbox' ? 'Sandbox' : 'Production'} budget request</p>
           <h1>Set the boundary.<br />The Agent stays inside it.</h1>
           <p>
             This Agent is asking for permission to make x402 payments. Review its identity and define exactly
@@ -152,7 +155,7 @@ function ApprovalForm({
         </section>
         <form className="approval-card" onSubmit={form.handleSubmit(onApprove)}>
           <div className="form-heading">
-            <p className="eyebrow">Spending policy</p>
+            <p className="eyebrow">{mode === 'sandbox' ? 'Sandbox' : 'Production'} spending policy</p>
             <h2>Allow this Agent to spend?</h2>
             <p>All limits are denominated in USDC.</p>
           </div>
