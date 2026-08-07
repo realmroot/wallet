@@ -16,7 +16,6 @@ export function PaymentsPage({ config }: { config: PublicConfig }) {
   return (
     <ConsoleLayout config={config} email={overview?.user.email}>
       <PageHeading
-        eyebrow="Money movement"
         title="Payments"
         description="Inspect signed x402 authorizations, settlement status, merchants, and on-chain receipts."
       />

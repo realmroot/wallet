@@ -19,29 +19,31 @@
 
 | Role | Hex | CSS Variable |
 |------|-----|--------------|
-| Primary | `#1E3A5F` | `--color-primary` |
+| Primary | `#007B83` | `--color-primary` |
 | On Primary | `#FFFFFF` | `--color-on-primary` |
-| Secondary | `#334155` | `--color-secondary` |
-| Accent/CTA | `#059669` | `--color-accent` |
-| Background | `#0F172A` | `--color-background` |
-| Foreground | `#FFFFFF` | `--color-foreground` |
-| Muted | `#10192E` | `--color-muted` |
-| Border | `rgba(255,255,255,0.08)` | `--color-border` |
-| Destructive | `#DC2626` | `--color-destructive` |
-| Ring | `#1E3A5F` | `--color-ring` |
+| Secondary | `#425154` | `--color-secondary` |
+| Accent/Signal | `#4FD1D0` | `--color-accent` |
+| Background | `#FFFFFF` | `--color-background` |
+| Foreground | `#142022` | `--color-foreground` |
+| Muted | `#F6F9F9` | `--color-muted` |
+| Border | `#DDE5E5` | `--color-border` |
+| Destructive | `#B83232` | `--color-destructive` |
+| Ring | `#007B83` | `--color-ring` |
 
-**Color Notes:** Vault dark blue + secure green
+**Color Notes:** Realmroot Clear Aqua — white canvas, calm aqua actions, charcoal content, and a near-white navigation rail.
 
 ### Typography
 
-- **Heading Font:** Fira Code
-- **Body Font:** Fira Sans
-- **Mood:** dashboard, data, analytics, code, technical, precise
-- **Google Fonts:** [Fira Code + Fira Sans](https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap)
+- **Heading Font:** Manrope
+- **Body Font:** Manrope
+- **Data Font:** DM Mono
+- **Mood:** calm, technical, composed, precise
+- **Font packages:** `@fontsource/manrope` and `@fontsource/dm-mono`
 
 **CSS Import:**
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+@import '@fontsource/manrope';
+@import '@fontsource/dm-mono';
 ```
 
 ### Spacing Variables
@@ -76,7 +78,7 @@
 ```css
 /* Primary Button */
 .btn-primary {
-  background: #059669;
+  background: #007B83;
   color: white;
   padding: 12px 24px;
   border-radius: 8px;
@@ -93,8 +95,8 @@
 /* Secondary Button */
 .btn-secondary {
   background: transparent;
-  color: #1E3A5F;
-  border: 2px solid #1E3A5F;
+  color: #142022;
+  border: 1px solid #DDE5E5;
   padding: 12px 24px;
   border-radius: 8px;
   font-weight: 600;
@@ -107,7 +109,8 @@
 
 ```css
 .card {
-  background: #0F172A;
+  background: #FFFFFF;
+  border: 1px solid #DDE5E5;
   border-radius: 12px;
   padding: 24px;
   box-shadow: var(--shadow-md);
@@ -133,9 +136,9 @@
 }
 
 .input:focus {
-  border-color: #1E3A5F;
+  border-color: #007B83;
   outline: none;
-  box-shadow: 0 0 0 3px #1E3A5F20;
+  box-shadow: 0 0 0 3px #007B8320;
 }
 ```
 
@@ -161,13 +164,13 @@
 
 ## Style Guidelines
 
-**Style:** Modern Dark (Cinema Mobile)
+**Style:** Clear Aqua Console
 
-**Keywords:** dark mode, cinematic, ambient light, glassmorphism, deep black, indigo, glow, blur, atmospheric, reanimated, haptic, premium, layered, frosted glass, linear gradient
+**Keywords:** light console, aqua, white canvas, near-white rail, precise borders, compact density, restrained elevation, calm, trustworthy
 
 **Best For:** Developer tools, pro productivity apps, fintech/trading dashboards, media/streaming platforms, AI tool interfaces, high-end gaming companion apps
 
-**Key Effects:** Expo.out Bezier(0.16,1,0.3,1) easing; spring modals (damping:20 stiffness:90); haptic-linked press (Impact Light/Medium); animated ambient light blobs (Reanimated translateX/Y slow oscillation); BlurView glassmorphism headers/nav (intensity 20); scale press 0.97 → 1.0; avoid pure #000000 (OLED smear)
+**Key Effects:** Expo.out Bezier(0.16,1,0.3,1) easing; restrained 1px borders; subtle aqua focus rings; compact active navigation fills; light modal shadows; scale press 0.97 → 1.0.
 
 ### Page Pattern
 
@@ -196,10 +199,6 @@ gsap.from(el, { opacity: 0, y: 12, duration: 0.35, ease: 'power1.out', scrollTri
 ---
 
 ## Anti-Patterns (Do NOT Use)
-
-- ❌ Pure white backgrounds
-
-### Additional Forbidden Patterns
 
 - ❌ **Emojis as icons** — Use SVG icons (Heroicons, Lucide, Simple Icons)
 - ❌ **Missing cursor:pointer** — All clickable elements must have cursor:pointer

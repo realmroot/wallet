@@ -254,7 +254,6 @@ describe('Agent Wallet', () => {
         agentIssuer,
         agentSubject,
         mode: 'sandbox',
-        name: 'Test Agent',
         totalLimit: '100000',
         spentTotal: '20000',
         perTransactionLimit: '50000',
@@ -613,7 +612,6 @@ describe('Agent Wallet', () => {
     expect(status).toMatchObject({
       budgets: [{
         mode: 'sandbox',
-        name: 'Local Codex',
         limits: {
           total: '1000000',
           perPayment: '100000',
@@ -624,6 +622,7 @@ describe('Agent Wallet', () => {
         },
       }],
     })
+    expect((status as { budgets: Array<Record<string, unknown>> }).budgets[0]).not.toHaveProperty('name')
     expect(
       (status as { networks: Array<{ network: string }> }).networks.find(
         (network) => network.network === 'eip155:84532',
@@ -690,97 +689,6 @@ describe('Agent Wallet', () => {
     })
     expect(oversized.status).toBe(413)
     expect(await oversized.json()).toMatchObject({ error: 'payload_too_large' })
-  })
-
-  it('exchanges and revokes browser OIDC tokens through the same-origin Wallet API', async () => {
-    const exchange = await SELF.fetch('https://wallet.test/api/oidc/token', {
-      method: 'POST',
-      headers: {
-        origin: 'https://wallet.test',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        grantType: 'authorization_code',
-        code: 'authorization-code',
-        codeVerifier: 'v'.repeat(64),
-      }),
-    })
-    expect(exchange.status, await exchange.clone().text()).toBe(200)
-    expect(await exchange.json()).toEqual({
-      access_token: 'access-token',
-      refresh_token: 'refresh-token',
-      id_token: 'id-token',
-      expires_in: 3600,
-    })
-
-    const revoke = await SELF.fetch('https://wallet.test/api/oidc/revoke', {
-      method: 'POST',
-      headers: {
-        origin: 'https://wallet.test',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ token: 'refresh-token' }),
-    })
-    expect(revoke.status).toBe(204)
-
-    const crossOrigin = await SELF.fetch('https://wallet.test/api/oidc/token', {
-      method: 'POST',
-      headers: {
-        origin: 'https://attacker.test',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        grantType: 'authorization_code',
-        code: 'authorization-code',
-        codeVerifier: 'v'.repeat(64),
-      }),
-    })
-    expect(crossOrigin.status).toBe(403)
-  })
-
-  it('logs detailed OIDC failures at the request error boundary', async () => {
-    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined)
-    const exchange = await SELF.fetch('https://wallet.test/api/oidc/token', {
-      method: 'POST',
-      headers: {
-        origin: 'https://wallet.test',
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        grantType: 'authorization_code',
-        code: 'rejected-authorization-code',
-        codeVerifier: 'v'.repeat(64),
-      }),
-    })
-
-    expect(exchange.status).toBe(502)
-    expect(await exchange.json()).toEqual({
-      error: 'upstream_error',
-      message: 'OIDC token exchange failed.',
-    })
-    const serializedLog = String(errorLog.mock.calls.at(-1)?.[0])
-    expect(serializedLog).not.toContain('rejected-authorization-code')
-    expect(serializedLog).not.toContain('v'.repeat(64))
-    const log = JSON.parse(serializedLog)
-    expect(log).toMatchObject({
-      message: 'request failed',
-      method: 'POST',
-      path: '/api/oidc/token',
-      status: 502,
-      errorCode: 'upstream_error',
-      error: {
-        message: 'OIDC token exchange failed.',
-        diagnostics: {
-          dependency: 'oidc',
-          operation: 'token_exchange',
-          upstreamStatus: 400,
-          upstreamCode: 'invalid_grant',
-          upstreamMessage: 'The authorization code is invalid or expired.',
-        },
-      },
-    })
-    expect(log.requestId).toEqual(expect.any(String))
-    expect(log.error.stack).toContain('ApiError: OIDC token exchange failed.')
   })
 
   it('provisions a wallet and approves a budget requested by the payment operation', async () => {
@@ -1268,7 +1176,6 @@ describe('Agent Wallet', () => {
       method: 'PUT',
       headers: jsonHeaders(`Bearer ${token}`),
       body: JSON.stringify({
-        name: 'Production Codex',
         totalLimit: '2000000',
         perTransactionLimit: '50000',
         periodKind: 'daily',
@@ -1333,7 +1240,6 @@ describe('Agent Wallet', () => {
       method: 'PUT',
       headers: jsonHeaders(`Bearer ${token}`),
       body: JSON.stringify({
-        name: 'Restricted Codex',
         totalLimit: '1000000',
         perTransactionLimit: '100000',
         periodKind: 'daily',
@@ -1605,7 +1511,7 @@ async function createBudgetRequest(
       dpop: await dpopProof(agentToken, budgetRequestsUrl, 'POST'),
       'content-type': 'application/json',
     },
-    body: JSON.stringify({ mode, name: 'Local Codex' }),
+    body: JSON.stringify({ mode }),
   })
 }
 
@@ -1635,7 +1541,6 @@ function approveBudget(
     body: JSON.stringify({
       decision: 'approve',
       approvalToken,
-      name: 'Local Codex',
       totalLimit: '1000000',
       perTransactionLimit: '100000',
       periodKind: 'daily',

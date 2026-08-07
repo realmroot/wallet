@@ -26,7 +26,6 @@ export function buildAgentWallet(
     return {
       id: grant.id,
       mode: grant.mode,
-      name: grant.name,
       status: grant.pausedAt
         ? 'paused'
         : grant.expiresAt && new Date(grant.expiresAt).getTime() <= now

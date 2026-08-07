@@ -68,7 +68,6 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
 
   return (
     <ApprovalForm
-      requestedName={request.data.requestedName}
       mode={request.data.mode}
       agentIssuer={request.data.agentIssuer}
       agentSubject={request.data.agentSubject}
@@ -87,7 +86,6 @@ export function BudgetApprovalPage({ config }: { config: PublicConfig }) {
 }
 
 function ApprovalForm({
-  requestedName,
   mode,
   agentIssuer,
   agentSubject,
@@ -96,7 +94,6 @@ function ApprovalForm({
   onApprove,
   onDeny,
 }: {
-  requestedName: string | null
   mode: 'production' | 'sandbox'
   agentIssuer: string
   agentSubject: string
@@ -109,7 +106,6 @@ function ApprovalForm({
   const form = useForm<PolicyFormValues>({
     resolver: zodResolver(policyFormSchema),
     defaultValues: {
-      name: requestedName ?? 'Local Agent',
       totalLimit: '10',
       perTransactionLimit: '1',
       periodKind: 'daily',

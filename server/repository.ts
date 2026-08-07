@@ -38,7 +38,6 @@ interface GrantRow {
   agent_issuer: string
   agent_subject: string
   mode: WalletMode
-  name: string
   total_limit: string
   spent_total: string
   per_transaction_limit: string
@@ -59,7 +58,6 @@ interface BudgetRequestRow {
   agent_issuer: string
   agent_subject: string
   mode: WalletMode
-  requested_name: string | null
   status: BudgetRequestState['status']
   approval_token_hash: string
   grant_id: string | null
@@ -108,7 +106,7 @@ export async function overview(
   const [grants, payments, auditEvents] = await Promise.all([
     db
       .prepare(
-        `SELECT id, agent_issuer, agent_subject, mode, name, total_limit, spent_total,
+        `SELECT id, agent_issuer, agent_subject, mode, total_limit, spent_total,
                 per_transaction_limit, period_kind, period_limit, period_spent,
                 allowed_origins, allowed_recipients, expires_at, paused_at, revoked_at
          FROM agent_grant WHERE user_id = ? AND mode = ? ORDER BY created_at DESC`,
@@ -184,7 +182,7 @@ export async function getAgentWalletState(db: D1Database, principal: AgentPrinci
 
   const grants = await db
     .prepare(
-      `SELECT id, agent_issuer, agent_subject, mode, name, total_limit, spent_total,
+      `SELECT id, agent_issuer, agent_subject, mode, total_limit, spent_total,
               per_transaction_limit, period_kind, period_limit, period_spent,
               period_started_at, allowed_origins, allowed_recipients, expires_at,
               paused_at, revoked_at
@@ -267,7 +265,6 @@ export async function createBudgetRequest(
   principal: AgentPrincipal,
   appOrigin: string,
   mode: WalletMode,
-  requestedName?: string,
 ): Promise<BudgetRequestState> {
   const user = await findUser(db, principal.owner.issuer, principal.owner.subject)
   if (user) {
@@ -312,9 +309,9 @@ export async function createBudgetRequest(
   await db
     .prepare(
       `INSERT INTO budget_request (
-         id, owner_issuer, owner_subject, agent_issuer, agent_subject, mode, requested_name,
+         id, owner_issuer, owner_subject, agent_issuer, agent_subject, mode,
          status, approval_token_hash, expires_at, created_at, updated_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+       ) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
     )
     .bind(
       id,
@@ -323,7 +320,6 @@ export async function createBudgetRequest(
       principal.agent.issuer,
       principal.agent.subject,
       mode,
-      requestedName ?? null,
       await hashToken(approvalToken),
       expiresAt,
       now,
@@ -380,7 +376,6 @@ export async function getBudgetRequestForApproval(
     ...toBudgetState(row),
     agentIssuer: row.agent_issuer,
     agentSubject: row.agent_subject,
-    requestedName: row.requested_name,
   }
 }
 
@@ -427,13 +422,12 @@ export async function decideBudgetRequest(
     db
       .prepare(
         `INSERT INTO agent_grant (
-         id, user_id, agent_issuer, agent_subject, mode, name, total_limit, spent_total,
+         id, user_id, agent_issuer, agent_subject, mode, total_limit, spent_total,
            per_transaction_limit, period_kind, period_limit, period_spent,
            period_started_at, allowed_origins, allowed_recipients, expires_at,
            paused_at, revoked_at, created_at, updated_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, '0', ?, ?, ?, '0', ?, ?, ?, ?, NULL, NULL, ?, ?)
+         ) VALUES (?, ?, ?, ?, ?, ?, '0', ?, ?, ?, '0', ?, ?, ?, ?, NULL, NULL, ?, ?)
          ON CONFLICT(user_id, agent_issuer, agent_subject, mode) DO UPDATE SET
-           name = excluded.name,
            total_limit = excluded.total_limit,
            per_transaction_limit = excluded.per_transaction_limit,
            period_kind = excluded.period_kind,
@@ -451,7 +445,6 @@ export async function decideBudgetRequest(
         row.agent_issuer,
         row.agent_subject,
         row.mode,
-        input.name,
         input.totalLimit,
         input.perTransactionLimit,
         input.periodKind,
@@ -504,7 +497,7 @@ export async function updateGrantPolicy(
   await db
     .prepare(
       `UPDATE agent_grant
-       SET name = ?, total_limit = ?, per_transaction_limit = ?,
+       SET total_limit = ?, per_transaction_limit = ?,
            period_spent = CASE WHEN period_kind != ? THEN '0' ELSE period_spent END,
            period_started_at = CASE WHEN period_kind != ? THEN ? ELSE period_started_at END,
            period_kind = ?, period_limit = ?, allowed_origins = ?,
@@ -512,7 +505,6 @@ export async function updateGrantPolicy(
        WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
     )
     .bind(
-      input.name,
       input.totalLimit,
       input.perTransactionLimit,
       input.periodKind,
@@ -1220,7 +1212,6 @@ function toGrant(row: GrantRow): AgentGrant {
     agentIssuer: row.agent_issuer,
     agentSubject: row.agent_subject,
     mode: row.mode,
-    name: row.name,
     totalLimit: row.total_limit,
     spentTotal: row.spent_total,
     perTransactionLimit: row.per_transaction_limit,
@@ -1254,7 +1245,7 @@ function normalizeAddress(family: WalletAccount['family'], value: string) {
 async function findBudgetRequest(db: D1Database, requestId: string) {
   return db
     .prepare(
-      `SELECT id, owner_issuer, owner_subject, agent_issuer, agent_subject, mode, requested_name,
+      `SELECT id, owner_issuer, owner_subject, agent_issuer, agent_subject, mode,
               status, approval_token_hash, grant_id, expires_at
        FROM budget_request WHERE id = ?`,
     )

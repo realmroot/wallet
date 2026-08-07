@@ -22,7 +22,6 @@ export function AgentsPage({ config }: { config: PublicConfig }) {
   return (
     <ConsoleLayout config={config} email={overview?.user.email}>
       <PageHeading
-        eyebrow="Delegated access"
         title="Agents"
         description="Review every Agent’s budget, payment ceiling, merchant restrictions, and current state."
       />

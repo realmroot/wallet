@@ -16,7 +16,6 @@ export function ActivityPage({ config }: { config: PublicConfig }) {
   return (
     <ConsoleLayout config={config} email={overview?.user.email}>
       <PageHeading
-        eyebrow="Security history"
         title="Activity"
         description="An audit trail of human and Agent actions that affected this wallet."
       />

@@ -32,10 +32,8 @@ export function DashboardPage({ config }: { config: PublicConfig }) {
   return (
     <ConsoleLayout config={config} email={overview?.user.email}>
       <PageHeading
-        eyebrow="Control plane"
         title="Overview"
         description="Your wallet, delegated budgets, and recent money movement at a glance."
-        action={<span className="network-badge"><span /> {network.name}</span>}
       />
       {!network.paymentsEnabled ? (
         <div className="notice" role="status">
@@ -49,7 +47,7 @@ export function DashboardPage({ config }: { config: PublicConfig }) {
             config={config}
             overview={overview}
             busy={dashboard.busy}
-            run={dashboard.run}
+            fund={dashboard.fund}
             reload={dashboard.reload}
             copied={copied}
             onCopy={copyAddress}

@@ -20,7 +20,6 @@ export function GrantDialog({
   const form = useForm<PolicyFormValues>({
     resolver: zodResolver(policyFormSchema),
     defaultValues: {
-      name: grant.name,
       totalLimit: fromAtomic(grant.totalLimit),
       perTransactionLimit: fromAtomic(grant.perTransactionLimit),
       periodKind: grant.periodKind,

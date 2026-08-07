@@ -1,22 +1,21 @@
 import { type PublicConfig, walletApi } from './api-client'
 import { routerBasePath } from './environment'
+import * as oauth from 'oauth4webapi'
 
 export type { PublicConfig } from './api-client'
 
-interface OidcMetadata {
-  authorization_endpoint: string
-}
-
-interface TokenResponse {
-  access_token: string
-  refresh_token?: string
-  id_token?: string
-  expires_in: number
+export interface IdentityProfile {
+  subject: string
+  name: string | null
+  email: string | null
+  picture: string | null
 }
 
 const prefix = 'agent-wallet.'
 const legacySandboxPrefix = 'agent-wallet.sandbox.'
 const sharedRefreshTokenKey = 'agent-wallet.session.refresh_token'
+const identityKey = `${prefix}identity`
+const authorizationServers = new Map<string, Promise<oauth.AuthorizationServer>>()
 let callbackExchange: Promise<string> | null = null
 let loginRedirect: Promise<void> | null = null
 
@@ -31,31 +30,35 @@ export function accessToken() {
   return localStorage.getItem(`${prefix}access_token`)
 }
 
+export function identityProfile(): IdentityProfile | null {
+  const value = localStorage.getItem(identityKey)
+  if (!value) return null
+  const profile = JSON.parse(value) as Partial<IdentityProfile>
+  if (
+    typeof profile.subject !== 'string' ||
+    !nullableString(profile.name) ||
+    !nullableString(profile.email) ||
+    !nullableString(profile.picture)
+  ) {
+    throw new Error('Stored OIDC identity is invalid.')
+  }
+  return profile as IdentityProfile
+}
+
 export async function cdpAccessToken(config: PublicConfig) {
   const audience = `${config.appOrigin}/api`
   const cached = currentAccessToken(prefix, audience)
   if (cached) return cached
-
-  for (const refreshToken of refreshTokens()) {
-    const response = await fetch(`${config.appOrigin}/api/oidc/token`, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ grantType: 'refresh_token', refreshToken }),
-    })
-    if (!response.ok) continue
-    const tokens = (await response.json()) as TokenResponse
-    if (!tokenHasAudience(tokens.access_token, audience)) {
-      throw new Error('OIDC token exchange returned an invalid CDP audience.')
-    }
-    storeTokens(tokens)
-    return tokens.access_token
+  await refreshAccessToken(config)
+  const refreshed = accessToken()
+  if (!refreshed || !tokenHasAudience(refreshed, audience)) {
+    throw new Error('OIDC token exchange returned an invalid CDP audience.')
   }
-
-  throw new Error('CDP authentication requires a Wallet session.')
+  return refreshed
 }
 
 export function hasToken() {
-  return Boolean(accessToken())
+  return Boolean(accessToken() && identityProfile())
 }
 
 export function hasRefreshToken() {
@@ -78,17 +81,18 @@ async function startLogin(
   config: Pick<PublicConfig, 'oidcIssuer' | 'clientId' | 'appBaseUrl' | 'audience'>,
   returnTo: string,
 ) {
-  const metadata = await discovery(config.oidcIssuer)
-  const state = crypto.randomUUID()
-  const nonce = crypto.randomUUID()
-  const verifier = randomBase64url(64)
-  const challenge = await sha256Base64url(verifier)
+  const server = await authorizationServer(config)
+  if (!server.authorization_endpoint) throw new Error('OIDC authorization endpoint is unavailable.')
+  const state = oauth.generateRandomState()
+  const nonce = oauth.generateRandomNonce()
+  const verifier = oauth.generateRandomCodeVerifier()
+  const challenge = await oauth.calculatePKCECodeChallenge(verifier)
   sessionStorage.setItem(`${prefix}state`, state)
   sessionStorage.setItem(`${prefix}nonce`, nonce)
   sessionStorage.setItem(`${prefix}verifier`, verifier)
   sessionStorage.setItem(`${prefix}return_to`, returnTo)
 
-  const url = new URL(metadata.authorization_endpoint)
+  const url = new URL(server.authorization_endpoint)
   url.search = new URLSearchParams({
     client_id: config.clientId,
     redirect_uri: `${config.appBaseUrl}/oidc/callback`,
@@ -109,24 +113,36 @@ export async function completeLogin(config: PublicConfig) {
 }
 
 async function exchangeAuthorizationCode(config: PublicConfig) {
-  const params = new URLSearchParams(location.search)
-  const error = params.get('error')
-  if (error) throw new Error(params.get('error_description') ?? error)
-  const code = params.get('code')
-  const state = params.get('state')
   const expectedState = sessionStorage.getItem(`${prefix}state`)
+  const expectedNonce = sessionStorage.getItem(`${prefix}nonce`)
   const verifier = sessionStorage.getItem(`${prefix}verifier`)
-  if (!code || !state || state !== expectedState || !verifier) throw new Error('OIDC callback is invalid.')
+  if (!expectedState || !expectedNonce || !verifier) throw new Error('OIDC callback is invalid.')
 
-  const response = await walletApi.oidc.token.$post({
-    json: {
-      grantType: 'authorization_code',
-      code,
-      codeVerifier: verifier,
+  const server = await authorizationServer(config)
+  const client = oidcClient(config)
+  const callbackParameters = oauth.validateAuthResponse(
+    server,
+    client,
+    new URL(location.href),
+    expectedState,
+  )
+  const response = await oauth.authorizationCodeGrantRequest(
+    server,
+    client,
+    oauth.None(),
+    callbackParameters,
+    `${config.appOrigin}/oidc/callback`,
+    verifier,
+    {
+      additionalParameters: { resource: config.audience },
+      [oauth.allowInsecureRequests]: allowInsecure(config),
     },
+  )
+  const tokens = await oauth.processAuthorizationCodeResponse(server, client, response, {
+    expectedNonce,
+    requireIdToken: true,
   })
-  if (!response.ok) throw new Error('OIDC token exchange failed.')
-  storeTokens((await response.json()) as TokenResponse)
+  storeTokens(tokens)
   sessionStorage.removeItem(`${prefix}state`)
   sessionStorage.removeItem(`${prefix}nonce`)
   sessionStorage.removeItem(`${prefix}verifier`)
@@ -135,31 +151,49 @@ async function exchangeAuthorizationCode(config: PublicConfig) {
   return storedReturnTo?.startsWith('/') && !storedReturnTo.startsWith('//') ? storedReturnTo : '/'
 }
 
-export async function refreshAccessToken(_config: PublicConfig) {
-  for (const refreshToken of refreshTokens()) {
-    const response = await walletApi.oidc.token.$post({
-      json: {
-        grantType: 'refresh_token',
-        refreshToken,
+export async function refreshAccessToken(config: PublicConfig) {
+  const refreshToken = refreshTokens()[0]
+  if (!refreshToken) throw new Error('OIDC refresh token is unavailable.')
+  try {
+    const server = await authorizationServer(config)
+    const client = oidcClient(config)
+    const response = await oauth.refreshTokenGrantRequest(
+      server,
+      client,
+      oauth.None(),
+      refreshToken,
+      {
+        additionalParameters: { resource: config.audience },
+        [oauth.allowInsecureRequests]: allowInsecure(config),
       },
-    })
-    if (!response.ok) continue
-    storeTokens((await response.json()) as TokenResponse)
-    return
+    )
+    const tokens = await oauth.processRefreshTokenResponse(server, client, response)
+    storeTokens(tokens)
+  } catch (error) {
+    clearTokens()
+    localStorage.removeItem(sharedRefreshTokenKey)
+    throw error
   }
-  clearTokens()
-  localStorage.removeItem(sharedRefreshTokenKey)
-  throw new Error('OIDC refresh token was rejected.')
 }
 
-export async function logout(_config: PublicConfig) {
+export async function logout(config: PublicConfig) {
   try {
-    await Promise.all(
-      refreshTokens().map(async (token) => {
-        const response = await walletApi.oidc.revoke.$post({ json: { token } })
-        if (!response.ok) throw new Error('OIDC token revocation failed.')
-      }),
-    )
+    const server = await authorizationServer(config)
+    if (server.revocation_endpoint) {
+      await Promise.all(refreshTokens().map(async (token) => {
+        const response = await oauth.revocationRequest(
+          server,
+          oidcClient(config),
+          oauth.None(),
+          token,
+          {
+            additionalParameters: { token_type_hint: 'refresh_token' },
+            [oauth.allowInsecureRequests]: allowInsecure(config),
+          },
+        )
+        await oauth.processRevocationResponse(response)
+      }))
+    }
   } finally {
     clearTokens()
     clearLegacySandboxTokens()
@@ -167,13 +201,24 @@ export async function logout(_config: PublicConfig) {
   }
 }
 
-function storeTokens(tokens: TokenResponse) {
+function storeTokens(tokens: oauth.TokenEndpointResponse) {
+  if (typeof tokens.expires_in !== 'number') throw new Error('OIDC token response has no expiration.')
   localStorage.setItem(`${prefix}access_token`, tokens.access_token)
   if (tokens.refresh_token) {
     localStorage.setItem(sharedRefreshTokenKey, tokens.refresh_token)
     localStorage.removeItem(`${prefix}refresh_token`)
   }
   if (tokens.id_token) localStorage.setItem(`${prefix}id_token`, tokens.id_token)
+  const claims = oauth.getValidatedIdTokenClaims(tokens)
+  if (claims) {
+    const profile: IdentityProfile = {
+      subject: claims.sub,
+      name: stringClaim(claims.name),
+      email: stringClaim(claims.email),
+      picture: urlClaim(claims.picture),
+    }
+    localStorage.setItem(identityKey, JSON.stringify(profile))
+  }
   localStorage.setItem(`${prefix}expires_at`, String(Date.now() + tokens.expires_in * 1000))
 }
 
@@ -181,6 +226,7 @@ function clearTokens() {
   for (const key of ['access_token', 'refresh_token', 'id_token', 'expires_at']) {
     localStorage.removeItem(`${prefix}${key}`)
   }
+  localStorage.removeItem(identityKey)
 }
 
 function clearLegacySandboxTokens() {
@@ -218,24 +264,38 @@ function refreshTokens() {
   )
 }
 
-async function discovery(issuer: string): Promise<OidcMetadata> {
-  const response = await fetch(`${issuer}/.well-known/openid-configuration`)
-  if (!response.ok) throw new Error('OIDC discovery failed.')
-  return response.json()
+function authorizationServer(config: Pick<PublicConfig, 'oidcIssuer'>) {
+  let pending = authorizationServers.get(config.oidcIssuer)
+  if (!pending) {
+    const issuer = new URL(config.oidcIssuer)
+    pending = oauth
+      .discoveryRequest(issuer, { [oauth.allowInsecureRequests]: issuer.protocol === 'http:' })
+      .then((response) => oauth.processDiscoveryResponse(issuer, response))
+    authorizationServers.set(config.oidcIssuer, pending)
+    pending.catch(() => authorizationServers.delete(config.oidcIssuer))
+  }
+  return pending
 }
 
-function randomBase64url(size: number) {
-  const bytes = crypto.getRandomValues(new Uint8Array(size))
-  return base64url(bytes)
+function oidcClient(config: Pick<PublicConfig, 'clientId'>): oauth.Client {
+  return { client_id: config.clientId, token_endpoint_auth_method: 'none' }
 }
 
-async function sha256Base64url(value: string) {
-  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value))
-  return base64url(new Uint8Array(digest))
+function allowInsecure(config: Pick<PublicConfig, 'oidcIssuer'>) {
+  return new URL(config.oidcIssuer).protocol === 'http:'
 }
 
-function base64url(bytes: Uint8Array) {
-  let value = ''
-  for (const byte of bytes) value += String.fromCharCode(byte)
-  return btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+function stringClaim(value: unknown) {
+  return typeof value === 'string' && value ? value : null
+}
+
+function urlClaim(value: unknown) {
+  const claim = stringClaim(value)
+  if (!claim || !URL.canParse(claim)) return null
+  const url = new URL(claim)
+  return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : null
+}
+
+function nullableString(value: unknown) {
+  return value === null || typeof value === 'string'
 }

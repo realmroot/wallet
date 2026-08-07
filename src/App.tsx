@@ -6,7 +6,7 @@ import { DashboardPage } from './pages/DashboardPage'
 import { AgentsPage } from './pages/AgentsPage'
 import { PaymentsPage } from './pages/PaymentsPage'
 import { ActivityPage } from './pages/ActivityPage'
-import { SettingsPage } from './pages/SettingsPage'
+import { AccountsPage } from './pages/AccountsPage'
 import { TransitionScreen } from './components/TransitionScreen'
 import { useQuery } from '@tanstack/react-query'
 import { lazy, Suspense } from 'react'
@@ -50,8 +50,8 @@ export function App() {
         <Route path="/activity">
           {hasToken() ? <ActivityPage config={config.data} /> : <LoginPage config={config.data} returnTo="/activity" />}
         </Route>
-        <Route path="/settings">
-          {hasToken() ? <SettingsPage config={config.data} /> : <LoginPage config={config.data} returnTo="/settings" />}
+        <Route path="/accounts">
+          {hasToken() ? <AccountsPage config={config.data} /> : <LoginPage config={config.data} returnTo="/accounts" />}
         </Route>
         <Route><Redirect replace to="/" /></Route>
       </Switch>

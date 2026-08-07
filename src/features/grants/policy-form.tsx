@@ -13,7 +13,6 @@ const decimalAmount = z
 
 export const policyFormSchema = z
   .object({
-    name: z.string().trim().min(1, 'Name is required.').max(100),
     totalLimit: decimalAmount,
     perTransactionLimit: decimalAmount,
     periodKind: z.enum(['none', 'daily', 'monthly']),
@@ -61,7 +60,6 @@ export type PolicyFormValues = z.input<typeof policyFormSchema>
 
 export function toPolicyInput(values: PolicyFormValues): UpdateGrantInput {
   return {
-    name: values.name.trim(),
     totalLimit: toAtomic(values.totalLimit),
     perTransactionLimit: toAtomic(values.perTransactionLimit),
     periodKind: values.periodKind,
@@ -85,9 +83,6 @@ export function PolicyFields({
 }) {
   return (
     <>
-      <Field label="Name" error={errors.name?.message}>
-        <input {...register('name')} aria-invalid={Boolean(errors.name)} />
-      </Field>
       <div className="field-grid">
         <Field label="Total USDC" error={errors.totalLimit?.message}>
           <input

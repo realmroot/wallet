@@ -85,8 +85,8 @@ export const paymentRequiredSchema = z
 export const createBudgetRequestSchema = z
   .object({
     mode: walletModeSchema,
-    name: z.string().trim().min(1).max(100).optional(),
   })
+  .strict()
   .openapi('CreateBudgetRequest')
 
 export const inspectBudgetRequestSchema = z
@@ -95,7 +95,6 @@ export const inspectBudgetRequestSchema = z
 
 const budgetPolicy = z
   .object({
-    name: z.string().trim().min(1).max(100),
     totalLimit: atomicAmount,
     perTransactionLimit: atomicAmount,
     periodKind: z.enum(['none', 'daily', 'monthly']),
@@ -104,6 +103,7 @@ const budgetPolicy = z
     allowedRecipients: z.array(walletAddress).max(20).default([]),
     expiresAt: z.iso.datetime().nullable(),
   })
+  .strict()
   .openapi('BudgetPolicy')
 
 export const budgetDecisionSchema = z
@@ -159,7 +159,6 @@ export const budgetRequestDetailSchema = budgetRequestStateSchema
   .extend({
     agentIssuer: z.string(),
     agentSubject: z.string(),
-    requestedName: z.string().nullable(),
   })
   .openapi('BudgetRequestDetail')
 export type BudgetRequestDetail = z.infer<typeof budgetRequestDetailSchema>
@@ -200,7 +199,6 @@ export const agentGrantSchema = z
     agentIssuer: z.string(),
     agentSubject: z.string(),
     mode: walletModeSchema,
-    name: z.string(),
     totalLimit: atomicAmount,
     spentTotal: usedAtomicAmount,
     perTransactionLimit: atomicAmount,
@@ -234,7 +232,6 @@ export type AgentWalletBlocker = z.infer<typeof agentWalletBlockerSchema>
 const agentBudgetSchema = z.object({
   id: resourceId,
   mode: walletModeSchema,
-  name: z.string(),
   status: z.enum(['active', 'paused', 'expired']),
   limits: z.object({
     total: atomicAmount,

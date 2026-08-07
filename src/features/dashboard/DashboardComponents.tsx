@@ -1,5 +1,5 @@
 import type { AgentGrant, WalletOverview as WalletOverviewData } from '../../../shared/contracts'
-import { actOnGrant, actOnWallet, requestFaucet, revokeGrant } from '../../api'
+import { actOnGrant, revokeGrant } from '../../api'
 import type { PublicConfig } from '../../auth'
 import { ProvisionWallet } from '../../cdp'
 import { useAgentInfo } from '../../agent-info'
@@ -15,18 +15,21 @@ import {
   Droplets,
   ExternalLink,
   KeyRound,
+  LoaderCircle,
   Pause,
   Pencil,
   Play,
   ShieldCheck,
+  WalletCards,
 } from 'lucide-react'
 import type { CSSProperties, ReactNode } from 'react'
+import { Link } from 'wouter'
 
 export function WalletOverview({
   config,
   overview,
   busy,
-  run,
+  fund,
   reload,
   copied,
   onCopy,
@@ -34,7 +37,7 @@ export function WalletOverview({
   config: PublicConfig
   overview: WalletOverviewData
   busy: (key: string) => boolean
-  run: (key: string, operation: () => Promise<unknown>) => Promise<unknown>
+  fund: (asset: 'usdc' | 'native') => Promise<unknown>
   reload: () => Promise<void>
   copied: boolean
   onCopy: (address: string) => Promise<void>
@@ -52,102 +55,124 @@ export function WalletOverview({
 
   return (
     <section className="overview-section" aria-labelledby="wallet-heading">
-      <div className="balance-card">
-        <div className="card-topline">
-          <span className="surface-icon"><CircleDollarSign size={20} /></span>
-          <span className={overview.runtime.balanceStatus === 'available' ? 'health-pill' : 'health-pill warning'}>
-            {overview.runtime.balanceStatus === 'available' ? 'Live balance' : 'Balance unavailable'}
-          </span>
-        </div>
-        <p className="metric-label" id="wallet-heading">Available balance</p>
-        <h2 className="balance-value">
-          {usdc ? formatToken(usdc.amount, usdc.decimals) : '—'} <span>USDC</span>
-        </h2>
-        <p className="secondary-balance">
-          {native ? `${formatToken(native.amount, native.decimals)} ${native.symbol}` : 'No network balance'}
-        </p>
-        {address ? (
-          <div className="address-block">
+      <div className="wallet-overview-grid">
+        <article className="wallet-balance-card">
+          <div className="panel-heading">
             <div>
-              <span>Wallet address</span>
-              <code>{address}</code>
+              <span className="panel-kicker" id="wallet-heading">Available balance</span>
+              <h2>{network?.name ?? 'Selected network'}</h2>
             </div>
-            <div className="compact-actions">
-              <button className="icon-button" onClick={() => void onCopy(address)} aria-label="Copy address">
-                {copied ? <Check size={17} /> : <Copy size={17} />}
-              </button>
-              <a
-                className="icon-button"
-                href={blockExplorerAddressUrl(overview.runtime.network, address)!}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="View wallet in the block explorer"
-              >
-                <ExternalLink size={17} />
-              </a>
+            <span className={overview.runtime.balanceStatus === 'available' ? 'health-pill' : 'health-pill warning'}>
+              {overview.runtime.balanceStatus === 'available' ? 'Live' : 'Unavailable'}
+            </span>
+          </div>
+          <div className="primary-balance">
+            <strong>{usdc ? formatToken(usdc.amount, usdc.decimals) : '—'}</strong>
+            <span>USDC</span>
+          </div>
+          <div className="balance-supporting-metrics">
+            <div>
+              <WalletCards size={16} />
+              <span>Network fee balance</span>
+              <strong>{native ? `${formatToken(native.amount, native.decimals)} ${native.symbol}` : '—'}</strong>
+            </div>
+            <div>
+              <CircleDollarSign size={16} />
+              <span>Agent budget remaining</span>
+              <strong>{formatUsdc(remainingBudget)}</strong>
             </div>
           </div>
-        ) : (
-          <p className="empty-copy">
-            Set up the {network?.family === 'evm' ? 'shared EVM' : 'Solana'} account to use {network?.name}.
-          </p>
-        )}
-      </div>
-
-      <div className="control-card">
-        <div className="card-heading">
-          <div>
-            <p className="eyebrow">Security posture</p>
-            <h2>Controls</h2>
-          </div>
-          <span className={`security-orb${overview.user.pausedAt ? ' paused' : ''}`}>
-            {overview.user.pausedAt ? <Pause size={20} /> : <ShieldCheck size={20} />}
-          </span>
-        </div>
-        <div className="control-stats">
-          <Metric icon={<Bot size={17} />} label="Active Agents" value={String(activeGrants.length)} />
-          <Metric icon={<CircleDollarSign size={17} />} label="Budget remaining" value={formatUsdc(remainingBudget)} />
-          <Metric
-            icon={<KeyRound size={17} />}
-            label="Signing delegation"
-            value={delegationExpiresAt
-              ? new Date(delegationExpiresAt).toLocaleDateString()
-              : 'Inactive'}
-          />
-        </div>
-        {address ? (
-          <div className="control-actions">
-            {overview.runtime.faucetAssets.length > 0 ? (
+          {address ? (
+            <div className="address-block">
+              <span className="address-icon"><WalletCards size={18} /></span>
+              <div>
+                <span>Settlement address</span>
+                <code>{address}</code>
+              </div>
+              <div className="compact-actions">
+                <button
+                  className="icon-button"
+                  onClick={() => void onCopy(address)}
+                  aria-label={copied ? 'Address copied' : 'Copy address'}
+                  aria-live="polite"
+                >
+                  {copied ? <Check size={17} /> : <Copy size={17} />}
+                </button>
+                <a
+                  className="icon-button"
+                  href={blockExplorerAddressUrl(overview.runtime.network, address)!}
+                  target="_blank"
+                  rel="noreferrer"
+                  aria-label="View wallet in the block explorer"
+                >
+                  <ExternalLink size={17} />
+                </a>
+              </div>
+            </div>
+          ) : (
+            <p className="empty-copy">
+              Set up the {network?.family === 'evm' ? 'shared EVM' : 'Solana'} account to use {network?.name}.
+            </p>
+          )}
+          {address && overview.runtime.faucetAssets.length > 0 ? (
+            <div className="sandbox-actions" aria-label="Sandbox funding">
+              <span>Sandbox tools</span>
               <div className="fund-actions">
                 {overview.runtime.faucetAssets.map((asset) => (
                   <button
                     className="secondary-button"
                     disabled={busy(`faucet-${asset}`)}
                     key={asset}
-                    onClick={() => void run(
-                      `faucet-${asset}`,
-                      () => requestFaucet(config, { network: overview.runtime.network, asset }),
-                    )}
+                    onClick={() => void fund(asset)}
                   >
-                    <Droplets size={16} /> Get test {asset === 'native' ? network?.nativeSymbol : 'USDC'}
+                    {busy(`faucet-${asset}`) ? <LoaderCircle className="button-spinner" size={16} /> : <Droplets size={16} />}
+                    {busy(`faucet-${asset}`)
+                      ? `Funding ${asset === 'native' ? network?.nativeSymbol : 'USDC'}…`
+                      : `Get test ${asset === 'native' ? network?.nativeSymbol : 'USDC'}`}
                   </button>
                 ))}
               </div>
-            ) : null}
-            <button
-              className={overview.user.pausedAt ? 'primary-button' : 'danger-button'}
-              disabled={busy('wallet-state')}
-              onClick={() =>
-                void run('wallet-state', () =>
-                  actOnWallet(config, { action: overview.user.pausedAt ? 'resume' : 'pause' }),
-                )
-              }
-            >
-              {overview.user.pausedAt ? <Play size={16} /> : <Pause size={16} />}
-              {overview.user.pausedAt ? 'Resume Agent payments' : 'Pause all Agent payments'}
-            </button>
+            </div>
+          ) : null}
+        </article>
+
+        <article className="wallet-health-card">
+          <div className="panel-heading">
+            <div>
+              <span className="panel-kicker">Wallet health</span>
+              <h2>Signing & safeguards</h2>
+            </div>
+            <span className={`security-orb${overview.user.pausedAt ? ' paused' : ''}`}>
+              {overview.user.pausedAt ? <Pause size={20} /> : <ShieldCheck size={20} />}
+            </span>
           </div>
-        ) : null}
+          <div className="health-list">
+            <Metric
+              icon={<ShieldCheck size={17} />}
+              label="Agent payments"
+              value={overview.user.pausedAt ? 'Paused' : 'Enabled'}
+              tone={overview.user.pausedAt ? 'warning' : 'success'}
+            />
+            <Metric
+              icon={<KeyRound size={17} />}
+              label="Signing permission"
+              value={delegationExpiresAt
+                ? `Until ${new Date(delegationExpiresAt).toLocaleDateString()}`
+                : 'Inactive'}
+              tone={delegationExpiresAt ? 'success' : 'muted'}
+            />
+            <Metric
+              icon={<Bot size={17} />}
+              label="Active Agents"
+              value={String(activeGrants.length)}
+              tone="muted"
+            />
+          </div>
+          <Link className="secondary-button button-link health-settings-link" href="/accounts">
+            Manage wallet accounts
+            <ArrowUpRight size={15} />
+          </Link>
+        </article>
       </div>
 
       {overview.user.pausedAt ? (
@@ -189,14 +214,25 @@ export function WalletOverview({
   )
 }
 
-function Metric({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
+function Metric({
+  icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ReactNode
+  label: string
+  value: string
+  tone: 'success' | 'warning' | 'muted'
+}) {
   return (
-    <div className="control-stat">
+    <div className="health-row">
       <span>{icon}</span>
       <div>
         <small>{label}</small>
         <strong>{value}</strong>
       </div>
+      <span className={`health-dot ${tone}`} />
     </div>
   )
 }
@@ -257,6 +293,7 @@ function AgentGrantCard({
   onEdit: (grant: AgentGrant) => void
 }) {
   const agentInfo = useAgentInfo(grant.agentIssuer, grant.agentSubject).data
+  const agentLabel = agentInfo?.name ?? grant.agentSubject
   const spent = BigInt(grant.spentTotal)
   const total = BigInt(grant.totalLimit)
   const progress = total > 0n ? Number((spent * 10_000n) / total) / 100 : 0
@@ -268,8 +305,7 @@ function AgentGrantCard({
           {agentInfo?.picture ? <img src={agentInfo.picture} alt="" /> : <Bot size={20} />}
         </span>
         <div className="agent-title">
-          <h3>{agentInfo?.name ?? grant.name}</h3>
-          {agentInfo && agentInfo.name !== grant.name ? <span>{grant.name}</span> : null}
+          <h3>{agentLabel}</h3>
           <code>{grant.agentSubject}</code>
         </div>
         <span className={grant.revokedAt ? 'status revoked' : grant.pausedAt ? 'status paused' : 'status'}>
@@ -290,7 +326,7 @@ function AgentGrantCard({
       <div
         className="budget-progress"
         role="progressbar"
-        aria-label={`${grant.name} budget used`}
+        aria-label={`${agentLabel} budget used`}
         aria-valuenow={Math.min(progress, 100)}
         aria-valuemin={0}
         aria-valuemax={100}

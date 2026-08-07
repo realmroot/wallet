@@ -23,13 +23,6 @@ import {
 } from './cdp'
 import { ApiError, badRequest, forbidden } from './errors'
 import {
-  exchangeOidcToken,
-  oidcRevokeInput,
-  oidcTokenInput,
-  requireWalletOrigin,
-  revokeOidcToken,
-} from './oidc'
-import {
   actOnWallet,
   actOnGrant,
   completePayment,
@@ -212,27 +205,6 @@ export function createHumanApi() {
         },
         200,
       ),
-    )
-    .post(
-      '/oidc/token',
-      zValidator('json', oidcTokenInput, (result) => {
-        if (!result.success) invalidRequest()
-      }),
-      async (c) => {
-        requireWalletOrigin(c.req.raw, c.env.APP_ORIGIN)
-        return c.json(await exchangeOidcToken(c.env, c.req.valid('json')), 200)
-      },
-    )
-    .post(
-      '/oidc/revoke',
-      zValidator('json', oidcRevokeInput, (result) => {
-        if (!result.success) invalidRequest()
-      }),
-      async (c) => {
-        requireWalletOrigin(c.req.raw, c.env.APP_ORIGIN)
-        await revokeOidcToken(c.env, c.req.valid('json').token)
-        return c.body(null, 204)
-      },
     )
     .get('/overview', async (c) => {
       const principal = await authenticateHuman(c.req.raw, c.env, 'wallet:read')
@@ -425,7 +397,6 @@ export function createHumanApi() {
             result.grantId && input.decision === 'approve'
               ? {
                   grantId: result.grantId,
-                  name: input.name,
                   totalLimit: input.totalLimit,
                   perTransactionLimit: input.perTransactionLimit,
                   periodKind: input.periodKind,
@@ -538,7 +509,6 @@ function createAgentApi() {
         principal,
         walletModeBaseUrl(c.env, input.mode),
         input.mode,
-        input.name,
       )
       if (result.status !== 'pending') return c.json(result, 200)
       setBudgetRequestHeaders(c, result)
