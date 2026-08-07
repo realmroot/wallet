@@ -13,7 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:migrate": "wrangler d1 migrations apply agent-wallet-production --local",
-    "db:migrate:production": "wrangler d1 migrations apply agent-wallet-production",
+    "db:migrate:production": "wrangler d1 migrations apply agent-wallet-production --remote",
     "e2e": "playwright test",
     "demo:merchant": "node examples/paid-service.mjs",
     "demo:merchant:real": "node examples/paid-service-real.mjs",
