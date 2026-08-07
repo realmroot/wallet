@@ -76,7 +76,7 @@ export async function decideBudgetRequest(
   )
 }
 
-export async function revokeGrant(config: PublicConfig, id: string): Promise<void> {
+export async function deleteGrant(config: PublicConfig, id: string): Promise<void> {
   await empty(
     await authenticated(config, (headers) =>
       walletApi.grants[':id'].$delete({ param: { id } }, { headers }),

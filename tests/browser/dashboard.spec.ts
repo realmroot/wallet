@@ -77,10 +77,12 @@ const grant = {
   allowedRecipients: ['0x2222222222222222222222222222222222222222'],
   expiresAt: null,
   pausedAt: null as string | null,
-  revokedAt: null,
 }
+let grantDeleted = false
 
 test.beforeEach(async ({ page }) => {
+  grant.pausedAt = null
+  grantDeleted = false
   const fundedAssets = new Set<string>()
   await page.addInitScript(() => {
     if (sessionStorage.getItem('skip-fixture-auth') !== 'true') {
@@ -167,7 +169,7 @@ test.beforeEach(async ({ page }) => {
           }],
           pausedAt: null,
         },
-        grants: [grant],
+        grants: grantDeleted ? [] : [grant],
         payments: [
           {
             id: 'payment-1',
@@ -227,6 +229,7 @@ test.beforeEach(async ({ page }) => {
 test('operates wallet balances, testnet funding, and Agent grants', async ({ page }) => {
   let grantAction = ''
   let walletAction = ''
+  let grantDeleteMethod = ''
   let updatedGrant: Record<string, unknown> | null = null
   await page.route('**/api/grants/grant-1/actions', async (route) => {
     grantAction = (await route.request().postDataJSON()).action
@@ -238,7 +241,12 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
     await route.fulfill({ status: 204 })
   })
   await page.route('**/api/grants/grant-1', async (route) => {
-    if (route.request().method() === 'PUT') updatedGrant = await route.request().postDataJSON()
+    if (route.request().method() === 'PUT') {
+      updatedGrant = await route.request().postDataJSON()
+    } else if (route.request().method() === 'DELETE') {
+      grantDeleteMethod = route.request().method()
+      grantDeleted = true
+    }
     await route.fulfill({ status: 204 })
   })
 
@@ -291,6 +299,24 @@ test('operates wallet balances, testnet funding, and Agent grants', async ({ pag
   await expect.poll(() => updatedGrant?.allowedOrigins).toEqual(['https://merchant.test'])
   expect(updatedGrant).not.toHaveProperty('name')
   await expect(page.getByRole('dialog')).not.toBeVisible()
+
+  const deleteTrigger = page.getByRole('button', { name: 'Delete', exact: true })
+  await deleteTrigger.click()
+  const deleteDialog = page.getByRole('dialog')
+  await expect(deleteDialog.getByRole('heading', { name: 'Delete Codex Agent’s budget?' })).toBeVisible()
+  await expect(deleteDialog).toContainText('this budget cannot be restored')
+  expect(grantDeleteMethod).toBe('')
+  await deleteDialog.getByRole('button', { name: 'Cancel' }).click()
+  await expect(deleteDialog).not.toBeVisible()
+  await expect(deleteTrigger).toBeFocused()
+  await expect(page.getByText('Codex Agent')).toBeVisible()
+
+  await deleteTrigger.click()
+  await deleteDialog.getByRole('button', { name: 'Delete Agent budget' }).click()
+  await expect.poll(() => grantDeleteMethod).toBe('DELETE')
+  await expect(deleteDialog).not.toBeVisible()
+  await expect(page.getByText('Codex Agent', { exact: true })).not.toBeVisible()
+  await expect(page.getByText('No Agent budgets yet')).toBeVisible()
 
   await page.getByRole('link', { name: 'Accounts' }).click()
   await expect(page).toHaveURL('/sandbox/accounts')

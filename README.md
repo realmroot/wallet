@@ -205,7 +205,7 @@ Agent grants, Realmroot Agent JWT validation, DPoP binding/replay rejection,
 budget enforcement, idempotency, and exact Base Sepolia USDC payment signing.
 It also covers the network registry, Solana settlement balance changes,
 concurrent cross-chain budget enforcement, stale signing-reservation
-recovery, Wallet and grant pause/resume, grant edit/revoke, expiration,
+recovery, Wallet and grant pause/resume, grant edit/delete, expiration,
 merchant and recipient allowlisting, asset allowlisting, and settlement
 recording. The Playwright suite operates the real React dashboard against its
 Hono RPC contract.

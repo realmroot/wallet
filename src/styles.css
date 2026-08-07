@@ -364,7 +364,6 @@ code { color: var(--text-muted); font-size: .72rem; word-break: break-all; }
 .agent-title code { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .status { display: inline-flex; align-items: center; gap: 5px; padding: 5px 8px; border-radius: 999px; color: var(--success); background: var(--success-soft); font-size: .58rem; font-weight: 700; }
 .status.paused { color: var(--warning); background: var(--warning-soft); }
-.status.revoked { color: var(--danger); background: var(--danger-soft); }
 .budget-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 22px; }
 .budget-row div { display: grid; gap: 4px; }
 .budget-row div:last-child { text-align: right; }
@@ -520,6 +519,11 @@ code { color: var(--text-muted); font-size: .72rem; word-break: break-all; }
 .dialog h2 { margin-bottom: 8px; font-size: 1.35rem; }
 .dialog-close { position: absolute; top: 16px; right: 16px; width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 8px; color: var(--text-muted); background: transparent; }
 .dialog-close:hover { color: var(--accent); background: var(--accent-soft); }
+.delete-dialog { width: min(480px, calc(100% - 32px)); }
+.delete-dialog > p:not(.eyebrow) { margin: 10px 0 0; color: var(--text-muted); font-size: .72rem; line-height: 1.65; }
+.delete-dialog-icon { width: 40px; height: 40px; display: grid; place-items: center; margin-bottom: 18px; border-radius: 10px; color: var(--danger); background: var(--danger-soft); }
+.danger-confirm { border-color: var(--danger); color: white; background: var(--danger); }
+.danger-confirm:hover { color: white; background: color-mix(in srgb, var(--danger) 88%, black); }
 .account-dialog > p { margin: 8px 0 0; color: var(--text-muted); font-size: .72rem; line-height: 1.6; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 22px; padding-top: 18px; border-top: 1px solid var(--border); }
 

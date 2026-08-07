@@ -48,7 +48,6 @@ interface GrantRow {
   allowed_recipients: string
   expires_at: string | null
   paused_at: string | null
-  revoked_at: string | null
 }
 
 interface BudgetRequestRow {
@@ -108,8 +107,10 @@ export async function overview(
       .prepare(
         `SELECT id, agent_issuer, agent_subject, mode, total_limit, spent_total,
                 per_transaction_limit, period_kind, period_limit, period_spent,
-                allowed_origins, allowed_recipients, expires_at, paused_at, revoked_at
-         FROM agent_grant WHERE user_id = ? AND mode = ? ORDER BY created_at DESC`,
+                allowed_origins, allowed_recipients, expires_at, paused_at
+         FROM agent_grant
+         WHERE user_id = ? AND mode = ? AND deleted_at IS NULL
+         ORDER BY created_at DESC`,
       )
       .bind(user.id, network.mode)
       .all<GrantRow>(),
@@ -185,9 +186,9 @@ export async function getAgentWalletState(db: D1Database, principal: AgentPrinci
       `SELECT id, agent_issuer, agent_subject, mode, total_limit, spent_total,
               per_transaction_limit, period_kind, period_limit, period_spent,
               period_started_at, allowed_origins, allowed_recipients, expires_at,
-              paused_at, revoked_at
+              paused_at
        FROM agent_grant
-       WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND revoked_at IS NULL`,
+       WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND deleted_at IS NULL`,
     )
     .bind(row.id, principal.agent.issuer, principal.agent.subject)
     .all<GrantRow & { period_started_at: string }>()
@@ -272,7 +273,7 @@ export async function createBudgetRequest(
       .prepare(
         `SELECT id, expires_at FROM agent_grant
          WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND mode = ?
-           AND revoked_at IS NULL`,
+           AND deleted_at IS NULL`,
       )
       .bind(user.id, principal.agent.issuer, principal.agent.subject, mode)
       .first<{ id: string; expires_at: string | null }>()
@@ -413,7 +414,8 @@ export async function decideBudgetRequest(
   const existing = await db
     .prepare(
       `SELECT id FROM agent_grant
-       WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND mode = ?`,
+       WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND mode = ?
+         AND deleted_at IS NULL`,
     )
     .bind(user.id, row.agent_issuer, row.agent_subject, row.mode)
     .first<{ id: string }>()
@@ -425,9 +427,9 @@ export async function decideBudgetRequest(
          id, user_id, agent_issuer, agent_subject, mode, total_limit, spent_total,
            per_transaction_limit, period_kind, period_limit, period_spent,
            period_started_at, allowed_origins, allowed_recipients, expires_at,
-           paused_at, revoked_at, created_at, updated_at
+           paused_at, deleted_at, created_at, updated_at
          ) VALUES (?, ?, ?, ?, ?, ?, '0', ?, ?, ?, '0', ?, ?, ?, ?, NULL, NULL, ?, ?)
-         ON CONFLICT(user_id, agent_issuer, agent_subject, mode) DO UPDATE SET
+         ON CONFLICT(id) DO UPDATE SET
            total_limit = excluded.total_limit,
            per_transaction_limit = excluded.per_transaction_limit,
            period_kind = excluded.period_kind,
@@ -436,7 +438,6 @@ export async function decideBudgetRequest(
            allowed_recipients = excluded.allowed_recipients,
            expires_at = excluded.expires_at,
            paused_at = NULL,
-           revoked_at = NULL,
            updated_at = excluded.updated_at`,
       )
       .bind(
@@ -467,12 +468,16 @@ export async function decideBudgetRequest(
   return { status: 'approved' as const, grantId }
 }
 
-export async function revokeGrant(db: D1Database, userId: string, grantId: string) {
+export async function deleteGrant(db: D1Database, userId: string, grantId: string) {
+  const now = new Date().toISOString()
   const result = await db
-    .prepare('UPDATE agent_grant SET revoked_at = ?, updated_at = ? WHERE id = ? AND user_id = ? AND revoked_at IS NULL')
-    .bind(new Date().toISOString(), new Date().toISOString(), grantId, userId)
+    .prepare(
+      `UPDATE agent_grant SET deleted_at = ?, updated_at = ?
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
+    )
+    .bind(now, now, grantId, userId)
     .run()
-  if (result.meta.changes !== 1) throw notFound('Active grant was not found.')
+  if (result.meta.changes !== 1) throw notFound('Grant was not found.')
 }
 
 export async function updateGrantPolicy(
@@ -485,7 +490,7 @@ export async function updateGrantPolicy(
   const grant = await db
     .prepare(
       `SELECT spent_total FROM agent_grant
-       WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
     )
     .bind(grantId, userId)
     .first<{ spent_total: string }>()
@@ -502,7 +507,7 @@ export async function updateGrantPolicy(
            period_started_at = CASE WHEN period_kind != ? THEN ? ELSE period_started_at END,
            period_kind = ?, period_limit = ?, allowed_origins = ?,
            allowed_recipients = ?, expires_at = ?, updated_at = ?
-       WHERE id = ? AND user_id = ? AND revoked_at IS NULL`,
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL`,
     )
     .bind(
       input.totalLimit,
@@ -533,7 +538,7 @@ export async function actOnGrant(
     .prepare(
       `UPDATE agent_grant
        SET paused_at = ?, updated_at = ?
-       WHERE id = ? AND user_id = ? AND revoked_at IS NULL
+       WHERE id = ? AND user_id = ? AND deleted_at IS NULL
          AND ((? = 'pause' AND paused_at IS NULL) OR (? = 'resume' AND paused_at IS NOT NULL))`,
     )
     .bind(input.action === 'pause' ? now : null, now, grantId, userId, input.action, input.action)
@@ -577,7 +582,7 @@ export async function reservePayment(
               allowed_recipients, expires_at, paused_at
        FROM agent_grant
        WHERE user_id = ? AND agent_issuer = ? AND agent_subject = ? AND mode = ?
-         AND revoked_at IS NULL`,
+         AND deleted_at IS NULL`,
     )
     .bind(
       user.id,
@@ -677,7 +682,7 @@ export async function reservePayment(
                  ELSE period_started_at
                END,
                updated_at = ?
-           WHERE id = ? AND revoked_at IS NULL AND paused_at IS NULL
+           WHERE id = ? AND deleted_at IS NULL AND paused_at IS NULL
              AND (expires_at IS NULL OR expires_at > ?)
              AND CAST(? AS INTEGER) <= CAST(per_transaction_limit AS INTEGER)
              AND CAST(spent_total AS INTEGER) + CAST(? AS INTEGER) <= CAST(total_limit AS INTEGER)
@@ -1222,7 +1227,6 @@ function toGrant(row: GrantRow): AgentGrant {
     allowedRecipients: parseStringArray(row.allowed_recipients),
     expiresAt: row.expires_at,
     pausedAt: row.paused_at,
-    revokedAt: row.revoked_at,
   }
 }
 

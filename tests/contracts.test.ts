@@ -48,4 +48,15 @@ describe('Agent identity contract', () => {
     expect('name' in agentGrantSchema.shape).toBe(false)
     expect('name' in agentWalletSchema.shape.budgets.element.shape).toBe(false)
   })
+
+  it('keeps deleted grants as database-only tombstones', async () => {
+    const grantColumns = await env.DB
+      .prepare('PRAGMA table_info(agent_grant)')
+      .all<{ name: string }>()
+
+    expect(grantColumns.results.map((column) => column.name)).toContain('deleted_at')
+    expect(grantColumns.results.map((column) => column.name)).not.toContain('revoked_at')
+    expect('deletedAt' in agentGrantSchema.shape).toBe(false)
+    expect('revokedAt' in agentGrantSchema.shape).toBe(false)
+  })
 })

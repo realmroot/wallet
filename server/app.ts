@@ -39,7 +39,7 @@ import {
   recordAuditEvent,
   recordSettlementFailure,
   reservePayment,
-  revokeGrant,
+  deleteGrant,
   settlePayment,
   updateGrantPolicy,
   updateWallet,
@@ -419,12 +419,12 @@ export function createHumanApi() {
         const principal = await authenticateHuman(c.req.raw, c.env, 'wallet:manage')
         const user = await getOrCreateUser(c.env.DB, principal)
         const grantId = c.req.valid('param').id
-        await revokeGrant(c.env.DB, user.id, grantId)
+        await deleteGrant(c.env.DB, user.id, grantId)
         await recordAuditEvent(c.env.DB, {
           userId: user.id,
           actorKind: 'human',
           actorSubject: principal.subject,
-          action: 'grant.revoked',
+          action: 'grant.deleted',
           targetType: 'grant',
           targetId: grantId,
         })
@@ -959,7 +959,7 @@ function openApiUrl(env: Env) {
 function checkDatabaseReadiness(env: Env) {
   return env.DB.batch([
     env.DB.prepare('SELECT paused_at FROM wallet_user LIMIT 1'),
-    env.DB.prepare('SELECT allowed_origins, allowed_recipients FROM agent_grant LIMIT 1'),
+    env.DB.prepare('SELECT allowed_origins, allowed_recipients, deleted_at FROM agent_grant LIMIT 1'),
     env.DB.prepare('SELECT transaction_hash, authorization_expires_at, account_id FROM payment LIMIT 1'),
     env.DB.prepare('SELECT family, address, delegation_expires_at FROM wallet_account LIMIT 1'),
     env.DB.prepare('SELECT id FROM audit_event LIMIT 1'),

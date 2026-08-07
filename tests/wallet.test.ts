@@ -264,7 +264,6 @@ describe('Agent Wallet', () => {
         allowedRecipients: [],
         expiresAt: null,
         pausedAt: null,
-        revokedAt: null,
       }],
       [{
         network: 'eip155:84532',
@@ -1159,7 +1158,7 @@ describe('Agent Wallet', () => {
     expect(attempts.filter((response) => response.status === 403)).toHaveLength(1)
   })
 
-  it('lets the controller update, pause, resume, and revoke an Agent grant', async () => {
+  it('soft-deletes an Agent grant without exposing or restoring it', async () => {
     const token = await humanToken()
     await provisionAndGrant(token)
     const agentToken = await createAgentToken()
@@ -1201,12 +1200,56 @@ describe('Agent Wallet', () => {
     expect(resume.status).toBe(204)
     expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(200)
 
-    const revoke = await SELF.fetch(grantUrl, {
+    const deletion = await SELF.fetch(grantUrl, {
       method: 'DELETE',
       headers: { authorization: `Bearer ${token}` },
     })
-    expect(revoke.status).toBe(204)
-    expect((await pay(agentToken, paymentRequired('25000'))).status).toBe(202)
+    expect(deletion.status).toBe(204)
+
+    const afterDeletion = await (
+      await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
+        headers: { authorization: `Bearer ${token}` },
+      })
+    ).json<{ grants: Array<{ id: string }>; auditEvents: Array<{ action: string }> }>()
+    expect(afterDeletion.grants).toEqual([])
+    expect(afterDeletion.auditEvents).toContainEqual(
+      expect.objectContaining({ action: 'grant.deleted' }),
+    )
+
+    const tombstone = await env.DB
+      .prepare('SELECT id, deleted_at FROM agent_grant WHERE id = ?')
+      .bind(grantId)
+      .first<{ id: string; deleted_at: string | null }>()
+    expect(tombstone).toMatchObject({ id: grantId, deleted_at: expect.any(String) })
+
+    const repeatedDeletion = await SELF.fetch(grantUrl, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(repeatedDeletion.status).toBe(404)
+
+    const replacementRequest = await pay(agentToken, paymentRequired('25000'))
+    expect(replacementRequest.status).toBe(202)
+    const pending = await replacementRequest.json<{
+      requestId: string
+      approvalUrl: string
+    }>()
+    const replacementApproval = await approveBudget(token, pending)
+    expect(replacementApproval.status).toBe(200)
+    const replacement = await replacementApproval.json<{ grantId: string }>()
+    expect(replacement.grantId).not.toBe(grantId)
+
+    const storedGrants = await env.DB
+      .prepare(
+        `SELECT id, deleted_at FROM agent_grant
+         WHERE agent_issuer = ? AND agent_subject = ? ORDER BY created_at`,
+      )
+      .bind(agentIssuer, agentSubject)
+      .all<{ id: string; deleted_at: string | null }>()
+    expect(storedGrants.results).toEqual([
+      { id: grantId, deleted_at: expect.any(String) },
+      { id: replacement.grantId, deleted_at: null },
+    ])
   })
 
   it('enforces Wallet emergency pause and grant merchant restrictions', async () => {

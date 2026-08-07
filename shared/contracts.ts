@@ -209,7 +209,6 @@ export const agentGrantSchema = z
     allowedRecipients: z.array(walletAddress),
     expiresAt: z.iso.datetime().nullable(),
     pausedAt: z.iso.datetime().nullable(),
-    revokedAt: z.iso.datetime().nullable(),
   })
   .openapi('AgentGrant')
 export type AgentGrant = z.infer<typeof agentGrantSchema>

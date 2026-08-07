@@ -1,13 +1,13 @@
 import type { AgentGrant, WalletOverview as WalletOverviewData } from '../../../shared/contracts'
-import { actOnGrant, revokeGrant } from '../../api'
+import { actOnGrant, deleteGrant } from '../../api'
 import type { PublicConfig } from '../../auth'
 import { ProvisionWallet } from '../../cdp'
 import { useAgentInfo } from '../../agent-info'
+import { DeleteGrantDialog } from '../grants/DeleteGrantDialog'
 import { blockExplorerAddressUrl, blockExplorerTransactionUrl } from '../../environment'
 import { delegationNeedsRenewal, eventLabel, formatToken, formatUsdc } from '../../lib/format'
 import {
   ArrowUpRight,
-  Ban,
   Bot,
   Check,
   CircleDollarSign,
@@ -47,8 +47,7 @@ export function WalletOverview({
   const usdc = overview.runtime.balances.find((balance) => balance.symbol === 'USDC')
   const native = overview.runtime.balances.find((balance) => balance.assetAddress === null)
   const network = config.networks.find((candidate) => candidate.id === overview.runtime.network)
-  const activeGrants = overview.grants.filter((grant) => !grant.revokedAt)
-  const remainingBudget = activeGrants.reduce((sum, grant) => {
+  const remainingBudget = overview.grants.reduce((sum, grant) => {
     const remaining = BigInt(grant.totalLimit) - BigInt(grant.spentTotal)
     return sum + (remaining > 0n ? remaining : 0n)
   }, 0n)
@@ -164,7 +163,7 @@ export function WalletOverview({
             <Metric
               icon={<Bot size={17} />}
               label="Active Agents"
-              value={String(activeGrants.length)}
+              value={String(overview.grants.length)}
               tone="muted"
             />
           </div>
@@ -297,6 +296,7 @@ function AgentGrantCard({
   const spent = BigInt(grant.spentTotal)
   const total = BigInt(grant.totalLimit)
   const progress = total > 0n ? Number((spent * 10_000n) / total) / 100 : 0
+  const deleteKey = `delete-${grant.id}`
 
   return (
     <article className="agent-card">
@@ -308,9 +308,9 @@ function AgentGrantCard({
           <h3>{agentLabel}</h3>
           <code>{grant.agentSubject}</code>
         </div>
-        <span className={grant.revokedAt ? 'status revoked' : grant.pausedAt ? 'status paused' : 'status'}>
+        <span className={grant.pausedAt ? 'status paused' : 'status'}>
           <span />
-          {grant.revokedAt ? 'Revoked' : grant.pausedAt ? 'Paused' : 'Active'}
+          {grant.pausedAt ? 'Paused' : 'Active'}
         </span>
       </div>
       <div className="budget-row">
@@ -339,32 +339,28 @@ function AgentGrantCard({
         <span>{grant.allowedOrigins.length ? `${grant.allowedOrigins.length} merchant origins` : 'Any merchant origin'}</span>
         <span>{grant.expiresAt ? `Expires ${new Date(grant.expiresAt).toLocaleDateString()}` : 'No expiration'}</span>
       </div>
-      {!grant.revokedAt ? (
-        <div className="agent-actions">
-          <button className="quiet-button" onClick={() => onEdit(grant)}>
-            <Pencil size={15} /> Edit
-          </button>
-          <button
-            className="quiet-button"
-            disabled={busy(`grant-${grant.id}`)}
-            onClick={() =>
-              void run(`grant-${grant.id}`, () =>
-                actOnGrant(config, grant.id, { action: grant.pausedAt ? 'resume' : 'pause' }),
-              )
-            }
-          >
-            {grant.pausedAt ? <Play size={15} /> : <Pause size={15} />}
-            {grant.pausedAt ? 'Resume' : 'Pause'}
-          </button>
-          <button
-            className="quiet-button destructive"
-            disabled={busy(`revoke-${grant.id}`)}
-            onClick={() => void run(`revoke-${grant.id}`, () => revokeGrant(config, grant.id))}
-          >
-            <Ban size={15} /> Revoke
-          </button>
-        </div>
-      ) : null}
+      <div className="agent-actions">
+        <button className="quiet-button" onClick={() => onEdit(grant)}>
+          <Pencil size={15} /> Edit
+        </button>
+        <button
+          className="quiet-button"
+          disabled={busy(`grant-${grant.id}`)}
+          onClick={() =>
+            void run(`grant-${grant.id}`, () =>
+              actOnGrant(config, grant.id, { action: grant.pausedAt ? 'resume' : 'pause' }),
+            )
+          }
+        >
+          {grant.pausedAt ? <Play size={15} /> : <Pause size={15} />}
+          {grant.pausedAt ? 'Resume' : 'Pause'}
+        </button>
+        <DeleteGrantDialog
+          agentLabel={agentLabel}
+          busy={busy(deleteKey)}
+          onConfirm={() => run(deleteKey, () => deleteGrant(config, grant.id))}
+        />
+      </div>
     </article>
   )
 }
