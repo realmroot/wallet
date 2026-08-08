@@ -3,7 +3,7 @@ import type { PublicConfig } from '../auth'
 import { hasToken } from '../auth'
 import { PolicyFields, policyFormSchema, toPolicyInput, type PolicyFormValues } from '../features/grants/policy-form'
 import { toDateTimeLocal } from '../lib/format'
-import { useAgentInfo } from '../agent-info'
+import { useAgentProfile } from '../agent-profile'
 import { LoginPage } from './LoginPage'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery } from '@tanstack/react-query'
@@ -102,7 +102,7 @@ function ApprovalForm({
   onApprove: (values: PolicyFormValues) => Promise<unknown>
   onDeny: () => Promise<unknown>
 }) {
-  const agentInfo = useAgentInfo(agentIssuer, agentSubject).data
+  const agentProfile = useAgentProfile(agentIssuer, agentSubject).data
   const form = useForm<PolicyFormValues>({
     resolver: zodResolver(policyFormSchema),
     defaultValues: {
@@ -135,11 +135,11 @@ function ApprovalForm({
           </p>
           <div className="identity-card">
             <span className="agent-avatar">
-              {agentInfo?.picture ? <img src={agentInfo.picture} alt="" /> : <Bot size={20} />}
+              {agentProfile?.picture ? <img src={agentProfile.picture} alt="" /> : <Bot size={20} />}
             </span>
             <div>
               <span>Verified Agent identity</span>
-              {agentInfo ? <strong>{agentInfo.name}</strong> : null}
+              {agentProfile ? <strong>{agentProfile.name}</strong> : null}
               <code>{agentSubject}</code>
             </div>
             <ShieldCheck size={18} />

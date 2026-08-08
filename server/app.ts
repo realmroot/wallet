@@ -439,6 +439,7 @@ function createAgentApi() {
   const api = openApiRouter()
   api.openAPIRegistry.registerComponent('securitySchemes', 'RealmrootOAuth', {
     type: 'oauth2',
+    'x-dpop-required': true,
     flows: {
       authorizationCode: {
         authorizationUrl: 'https://realmroot.invalid/api/auth/oauth2/authorize',
@@ -720,29 +721,6 @@ function agentApiDocument() {
       scheme: 'DPoP',
       provider: 'Realmroot',
       managedBy: 'Restish authentication adapter',
-    },
-    'x-cli-config': {
-      profiles: {
-        default: {
-          credentials: {
-            RealmrootOAuth: {
-              auth: {
-                type: 'api-key',
-                params: {
-                  in: 'header',
-                  name: 'Authorization',
-                  value: 'DPoP',
-                  provider: 'realmroot-target',
-                  scopes: Object.keys(agentScopeCatalog).join(' '),
-                },
-              },
-              params: {
-                provider: 'realmroot-target',
-              },
-            },
-          },
-        },
-      },
     },
   }
 }

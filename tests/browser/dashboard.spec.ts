@@ -117,24 +117,33 @@ test.beforeEach(async ({ page }) => {
         authorization_endpoint: 'https://fa.test/api/auth/oauth2/authorize',
         token_endpoint: 'https://fa.test/api/auth/oauth2/token',
         revocation_endpoint: 'https://fa.test/api/auth/oauth2/revoke',
-        agentinfo_endpoint: 'https://fa.test/api/auth/agentinfo',
       },
     }),
   )
-  await page.route('https://fa.test/api/auth/agentinfo?*', (route) => {
-    const subject = new URL(route.request().url()).searchParams.get('sub')
+  await page.route('https://fa.test/.well-known/oauth-authorization-server/api/auth', (route) =>
+    route.fulfill({
+      json: {
+        issuer: 'https://fa.test/api/auth',
+        agent_profile_uri_template: 'https://fa.test/api/public/agents/{subject}',
+      },
+    }),
+  )
+  await page.route('https://fa.test/api/public/agents/*', (route) => {
+    const subject = decodeURIComponent(new URL(route.request().url()).pathname.split('/').at(-1) ?? '')
     const names: Record<string, string> = {
       'agent-codex': 'Codex Agent',
       'agent-budget-request': 'Budget Agent Identity',
     }
     return route.fulfill({
       json: {
-        iss: 'https://fa.test/api/auth',
-        sub: subject,
-        sub_profile: 'ai_agent',
+        type: 'agent',
+        view: 'summary',
+        issuer: 'https://fa.test/api/auth',
+        subject,
         name: names[subject ?? ''] ?? 'Test Agent',
         picture: 'https://fa.test/agent-picture-v1.svg',
-        updated_at: 1_785_450_000,
+        createdAt: '2026-08-01T00:00:00.000Z',
+        updatedAt: '2026-08-02T00:00:00.000Z',
       },
     })
   })

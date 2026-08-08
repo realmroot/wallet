@@ -322,6 +322,7 @@ describe('Agent Wallet', () => {
         securitySchemes: {
           RealmrootOAuth: {
             type: 'oauth2',
+            'x-dpop-required': true,
             flows: {
               authorizationCode: {
                 authorizationUrl: 'https://fa.test/api/auth/oauth2/authorize',
@@ -332,22 +333,6 @@ describe('Agent Wallet', () => {
                   'wallet:budget:request': expect.any(String),
                   'wallet:x402:pay': expect.any(String),
                 },
-              },
-            },
-          },
-        },
-      },
-      'x-cli-config': {
-        profiles: {
-          default: {
-            credentials: {
-              RealmrootOAuth: {
-                auth: {
-                  params: {
-                    scopes: 'wallet:read wallet:budget:request wallet:x402:pay',
-                  },
-                },
-                params: { provider: 'realmroot-target' },
               },
             },
           },

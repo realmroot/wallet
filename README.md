@@ -20,7 +20,7 @@ one deployment and one D1 database. No application smart contract is required.
 - The browser uses Authorization Code + PKCE with any compatible OIDC provider.
 - Browser tokens are stored in `localStorage`; Agent Wallet has no login cookie or server session.
 - The Worker validates human access tokens against the configured OIDC issuer/JWKS and keys users by `(iss, sub)`.
-- Realmroot is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer and discovery document. The Agent token's top-level `sub` is the authorizing user, its RFC 8693 `act` identifies the stable Agent with `sub_profile: ai_agent`, and `cnf.jkt` binds the token to DPoP. The Wallet resolves the issuer's discovered `agentinfo_endpoint` for the Agent's public name and picture.
+- Realmroot is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer. The Agent token's top-level `sub` is the authorizing user, its RFC 8693 `act` identifies the stable Agent with `sub_profile: ai_agent`, and `cnf.jkt` binds the token to DPoP. The Wallet resolves the issuer's discovered `agent_profile_uri_template` for the Agent's public name and picture.
 - Every Agent payment request requires a fresh DPoP proof. Replayed proofs are rejected.
 - The API publishes RFC 9728 Protected Resource Metadata at
   `/.well-known/oauth-protected-resource/api`. Authentication challenges link
@@ -127,10 +127,9 @@ payment identifies its chain with the standard network ID. The server derives
 the payment mode from that network and applies only the matching grant.
 
 The document declares one standard Realmroot OAuth security scheme with
-operation-specific scopes. Restish's declarative `x-cli-config` selects the
-generic Realmroot target adapter, which supplies the DPoP-bound access token
-and per-request proof. Wallet-specific commands or credentials are not
-installed.
+operation-specific scopes and `x-dpop-required: true`. Restish can bind a
+Realmroot credential source to that scheme without Resource Server-specific
+authentication configuration.
 
 This produces a compact, resource-oriented command surface:
 

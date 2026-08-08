@@ -2,7 +2,7 @@ import type { AgentGrant, WalletOverview as WalletOverviewData } from '../../../
 import { actOnGrant, deleteGrant } from '../../api'
 import type { PublicConfig } from '../../auth'
 import { ProvisionWallet } from '../../cdp'
-import { useAgentInfo } from '../../agent-info'
+import { useAgentProfile } from '../../agent-profile'
 import { DeleteGrantDialog } from '../grants/DeleteGrantDialog'
 import { blockExplorerAddressUrl, blockExplorerTransactionUrl } from '../../environment'
 import { delegationNeedsRenewal, eventLabel, formatToken, formatUsdc } from '../../lib/format'
@@ -291,8 +291,8 @@ function AgentGrantCard({
   run: (key: string, operation: () => Promise<unknown>) => Promise<unknown>
   onEdit: (grant: AgentGrant) => void
 }) {
-  const agentInfo = useAgentInfo(grant.agentIssuer, grant.agentSubject).data
-  const agentLabel = agentInfo?.name ?? grant.agentSubject
+  const agentProfile = useAgentProfile(grant.agentIssuer, grant.agentSubject).data
+  const agentLabel = agentProfile?.name ?? grant.agentSubject
   const spent = BigInt(grant.spentTotal)
   const total = BigInt(grant.totalLimit)
   const progress = total > 0n ? Number((spent * 10_000n) / total) / 100 : 0
@@ -302,7 +302,7 @@ function AgentGrantCard({
     <article className="agent-card">
       <div className="agent-card-header">
         <span className="agent-avatar">
-          {agentInfo?.picture ? <img src={agentInfo.picture} alt="" /> : <Bot size={20} />}
+          {agentProfile?.picture ? <img src={agentProfile.picture} alt="" /> : <Bot size={20} />}
         </span>
         <div className="agent-title">
           <h3>{agentLabel}</h3>
