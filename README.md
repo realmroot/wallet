@@ -153,10 +153,14 @@ Realmroot's Restish adapter owns the Agent identity, target access token, and
 grant-specific DPoP key. The Agent calls its original business API and forwards
 the `PAYMENT-REQUIRED` response header to
 `restish agent-wallet payment authorize`, together with a stable
-`Idempotency-Key`. It completes controller budget approval when the Wallet
-returns `202`, then retries the business request with the Wallet's returned
-`PAYMENT-SIGNATURE` header. JSON request and response fields remain available
-for clients that do not expose HTTP headers directly.
+`Idempotency-Key`. `PaymentRequired` must come from that header; request bodies
+are not part of this operation's contract. When the header contains multiple
+compatible requirements, the Wallet returns `422`
+with the available `selectionId` values without creating a payment or consuming
+budget. The Agent chooses one and repeats the same request with
+`--payment-selection <selection-id>` and the same idempotency key. It completes
+controller budget approval when the Wallet returns `202`, then retries the
+business request with the Wallet's returned `PAYMENT-SIGNATURE` header.
 
 After the business request succeeds, the Agent forwards its
 `PAYMENT-RESPONSE` header to `restish agent-wallet payment confirm`. The Wallet

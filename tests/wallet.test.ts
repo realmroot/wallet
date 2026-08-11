@@ -35,28 +35,6 @@ const budgetRequestsUrl = 'https://wallet.test/api/agent/budget-requests'
 const agentWalletUrl = 'https://wallet.test/api/agent/wallet'
 const ownerSubject = 'user-1'
 const agentSubject = 'agent-1'
-type AgentOpenApiNetworkContract = {
-  components: {
-    schemas: {
-      PaymentRequired: {
-        properties: {
-          accepts: {
-            items: {
-              properties: {
-                network: { enum: string[]; example: string }
-              }
-            }
-          }
-        }
-      }
-    }
-  }
-}
-
-function paymentRequiredNetworkSchema(document: AgentOpenApiNetworkContract) {
-  return document.components.schemas.PaymentRequired.properties.accepts.items.properties.network
-}
-
 const mockSignerPrivateKey =
   '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'
 const walletAddress = privateKeyToAccount(mockSignerPrivateKey).address
@@ -418,6 +396,7 @@ describe('Agent Wallet', () => {
         settlementOperationId: 'confirmPaymentSettlement',
         headers: {
           paymentRequired: 'PAYMENT-REQUIRED',
+          paymentSelection: 'PAYMENT-SELECTION',
           paymentSignature: 'PAYMENT-SIGNATURE',
           paymentResponse: 'PAYMENT-RESPONSE',
         },
@@ -457,18 +436,22 @@ describe('Agent Wallet', () => {
               },
             },
           },
-          PaymentRequired: {
+          PaymentRequirementProblem: {
             properties: {
-              accepts: {
+              options: {
                 items: {
                   properties: {
-                    network: {
-                      enum: walletNetworkIds,
-                      example: 'eip155:8453',
-                    },
-                    payTo: {
-                      description:
-                        'Merchant recipient. On Solana, this address must already exist on the selected network.',
+                    requirement: {
+                      properties: {
+                        network: {
+                          enum: walletNetworkIds,
+                          example: 'eip155:8453',
+                        },
+                        payTo: {
+                          description:
+                            'Merchant recipient. On Solana, this address must already exist on the selected network.',
+                        },
+                      },
                     },
                   },
                 },
@@ -502,6 +485,21 @@ describe('Agent Wallet', () => {
         },
       },
     })
+    const paymentOperation = (document.paths['/x402/payments'] as {
+      post: {
+        requestBody?: unknown
+        parameters: Array<{ name: string; in: string; required?: boolean }>
+        responses: Record<string, { content?: Record<string, unknown> }>
+      }
+    }).post
+    expect(paymentOperation.requestBody).toBeUndefined()
+    expect(paymentOperation.parameters).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'payment-required', in: 'header', required: true }),
+        expect.objectContaining({ name: 'payment-selection', in: 'header', required: false }),
+      ]),
+    )
+    expect(paymentOperation.responses['422']?.content).toHaveProperty('application/problem+json')
     expect(Object.keys(document.paths).sort()).toEqual([
       '/agent/budget-requests',
       '/agent/budget-requests/{requestId}',
@@ -1074,7 +1072,7 @@ describe('Agent Wallet', () => {
     ).toThrow(/Payment identifier/)
   })
 
-  it('rejects ambiguous or malformed x402 payment input', async () => {
+  it('requires header transport and rejects malformed x402 payment input', async () => {
     const agentToken = await createAgentToken()
     const malformed = await SELF.fetch(walletUrl, {
       method: 'POST',
@@ -1087,19 +1085,93 @@ describe('Agent Wallet', () => {
     })
     expect(malformed.status).toBe(400)
 
-    const requirement = paymentRequired('25000')
-    const ambiguous = await SELF.fetch(walletUrl, {
+    const bodyOnly = await SELF.fetch(walletUrl, {
       method: 'POST',
       headers: {
         authorization: `DPoP ${agentToken}`,
         dpop: await dpopProof(agentToken, walletUrl, 'POST'),
         'idempotency-key': crypto.randomUUID(),
-        'payment-required': encodePaymentRequiredHeader(requirement),
         'content-type': 'application/json',
       },
-      body: JSON.stringify(requirement),
+      body: JSON.stringify(paymentRequired('25000')),
     })
-    expect(ambiguous.status).toBe(400)
+    expect(bodyOnly.status).toBe(400)
+
+  })
+
+  it('requires an explicit choice between compatible payment requirements without reserving budget', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken()
+    const firstRequirement = paymentRequired('25000')
+    const requirement: PaymentRequired = {
+      ...firstRequirement,
+      accepts: [
+        firstRequirement.accepts[0]!,
+        { ...firstRequirement.accepts[0]!, amount: '1000' },
+      ],
+    }
+    const idempotencyKey = crypto.randomUUID()
+
+    const choice = await pay(agentToken, requirement, idempotencyKey)
+    expect(choice.status).toBe(422)
+    expect(choice.headers.get('content-type')).toContain('application/problem+json')
+    expect(choice.headers.get('cache-control')).toBe('no-store')
+    const problem = await choice.json<{
+      type: string
+      status: number
+      options: Array<{
+        selectionId: string
+        index: number
+        requirement: PaymentRequired['accepts'][number]
+      }>
+    }>()
+    expect(problem).toMatchObject({
+      type: 'https://wallet.test/api/problems/payment-selection-required',
+      status: 422,
+      options: [
+        { index: 0, requirement: { amount: '25000' } },
+        { index: 1, requirement: { amount: '1000' } },
+      ],
+    })
+    expect(problem.options[0]?.selectionId).not.toBe(problem.options[1]?.selectionId)
+
+    const afterChoice = await overview(token)
+    expect(afterChoice.grants[0]?.spentTotal).toBe('0')
+    expect(afterChoice.payments).toEqual([])
+
+    const invalid = await pay(
+      agentToken,
+      requirement,
+      idempotencyKey,
+      `offer_${'0'.repeat(32)}`,
+    )
+    expect(invalid.status).toBe(422)
+    const invalidProblem = await invalid.json<{
+      detail: string
+      options: typeof problem.options
+    }>()
+    expect(invalidProblem.detail).toContain('invalid or stale')
+    expect(invalidProblem.options).toEqual(problem.options)
+    const afterInvalid = await overview(token)
+    expect(afterInvalid.grants[0]?.spentTotal).toBe('0')
+    expect(afterInvalid.payments).toEqual([])
+
+    const selected = problem.options[1]!
+    const payment = await pay(
+      agentToken,
+      requirement,
+      idempotencyKey,
+      selected.selectionId,
+    )
+    expect(payment.status, await payment.clone().text()).toBe(200)
+    expect(await payment.json()).toMatchObject({
+      paymentPayload: { accepted: { amount: '1000' } },
+      replayed: false,
+    })
+    const afterPayment = await overview(token)
+    expect(afterPayment.grants[0]?.spentTotal).toBe('1000')
+    expect(afterPayment.payments).toHaveLength(1)
   })
 
   it('records a verified x402 settlement response', async () => {
@@ -1151,7 +1223,12 @@ describe('Agent Wallet', () => {
     const agentToken = await createAgentToken()
     const unsupported = paymentRequired('25000')
     unsupported.accepts[0]!.asset = '0x0000000000000000000000000000000000000002'
-    expect((await pay(agentToken, unsupported)).status).toBe(400)
+    const unsupportedResponse = await pay(agentToken, unsupported)
+    expect(unsupportedResponse.status).toBe(422)
+    expect(await unsupportedResponse.json()).toMatchObject({
+      type: 'https://wallet.test/api/problems/no-supported-payment-requirement',
+      options: [],
+    })
 
     const attempts = await Promise.all(
       Array.from({ length: 3 }, () => pay(agentToken, paymentRequired('100000'))),
@@ -1380,6 +1457,7 @@ describe('Agent Wallet', () => {
     await provisionAndGrant(token)
     const agentToken = await createAgentToken()
     const proof = await dpopProof(agentToken)
+    const requirement = paymentRequired('25000')
     const request = () =>
       SELF.fetch(walletUrl, {
         method: 'POST',
@@ -1387,9 +1465,8 @@ describe('Agent Wallet', () => {
           authorization: `DPoP ${agentToken}`,
           dpop: proof,
           'idempotency-key': crypto.randomUUID(),
-          'content-type': 'application/json',
+          'payment-required': encodePaymentRequiredHeader(requirement),
         },
-        body: JSON.stringify(paymentRequired('25000')),
       })
 
     expect((await request()).status).toBe(200)
@@ -1509,6 +1586,7 @@ async function pay(
   agentToken: string,
   requirement: PaymentRequired,
   idempotencyKey = crypto.randomUUID(),
+  selectionId?: string,
 ) {
   return SELF.fetch(walletUrl, {
     method: 'POST',
@@ -1516,10 +1594,21 @@ async function pay(
       authorization: `DPoP ${agentToken}`,
       dpop: await dpopProof(agentToken, walletUrl, 'POST'),
       'idempotency-key': idempotencyKey,
-      'content-type': 'application/json',
+      'payment-required': encodePaymentRequiredHeader(requirement),
+      ...(selectionId ? { 'payment-selection': selectionId } : {}),
     },
-    body: JSON.stringify(requirement),
   })
+}
+
+async function overview(token: string) {
+  const response = await SELF.fetch('https://wallet.test/api/overview?network=eip155%3A84532', {
+    headers: { authorization: `Bearer ${token}` },
+  })
+  expect(response.status, await response.clone().text()).toBe(200)
+  return response.json<{
+    grants: Array<{ spentTotal: string }>
+    payments: unknown[]
+  }>()
 }
 
 async function provisionAndGrant(

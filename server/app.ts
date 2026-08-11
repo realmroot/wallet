@@ -4,6 +4,8 @@ import {
   grantActionSchema,
   inspectBudgetRequestSchema,
   type BudgetRequestState,
+  type PaymentRequirement,
+  type PaymentRequirementProblem,
   type PaymentRequired,
   type SettlementResponse,
   type WalletRuntime,
@@ -140,6 +142,7 @@ function createApi(agentApi: ReturnType<typeof createAgentApi>) {
         'DPoP',
         'Idempotency-Key',
         'PAYMENT-REQUIRED',
+        'PAYMENT-SELECTION',
         'PAYMENT-RESPONSE',
       ],
       allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -536,14 +539,25 @@ function createAgentApi() {
         createPaymentAuthorizationRoute.operationId,
       )
       const headers = c.req.valid('header')
-      const hasJsonBody = isJsonRequest(c.req.raw)
-      const paymentRequired = paymentRequiredInput(
-        hasJsonBody ? (c.req.valid('json') as PaymentRequired) : undefined,
+      const paymentRequired = decodeX402Header(
         headers['payment-required'],
-        hasJsonBody,
+        decodePaymentRequiredHeader,
+        paymentRequiredSchema,
+        'PAYMENT-REQUIRED',
       )
       const idempotencyKey = headers['idempotency-key']
-      const accepted = selectRequirement(paymentRequired, c.env)
+      const selection = await resolvePaymentRequirement(
+        paymentRequired,
+        headers['payment-selection'],
+        c.env,
+      )
+      if (selection.kind === 'problem') {
+        c.header('Cache-Control', 'no-store')
+        const response = c.json(selection.body, 422)
+        response.headers.set('Content-Type', 'application/problem+json')
+        return response
+      }
+      const accepted = selection.requirement
       if (!networkPaymentsEnabled(c.env, accepted.network)) {
         throw forbidden(`Payments are disabled on ${accepted.network}.`)
       }
@@ -560,7 +574,7 @@ function createAgentApi() {
       }
 
       await validatePaymentRecipient(c.env, accepted.network, accepted.payTo)
-      const requirementHash = await hashRequirement(paymentRequired)
+      const requirementHash = await hashRequirement(paymentRequired, accepted)
       const reservation = await reservePayment(c.env.DB, {
         owner: principal.owner,
         agent: principal.agent,
@@ -592,7 +606,7 @@ function createAgentApi() {
             cdpUserId: reservation.user.cdpUserId!,
             account: reservation.account,
             network: accepted.network,
-            paymentRequired,
+            paymentRequired: { ...paymentRequired, accepts: [accepted] },
             idempotencyKey: reservation.paymentId,
           }),
         )
@@ -716,6 +730,7 @@ function agentApiDocument() {
       trigger: 'HTTP 402 Payment Required',
       headers: {
         paymentRequired: 'PAYMENT-REQUIRED',
+        paymentSelection: 'PAYMENT-SELECTION',
         paymentSignature: 'PAYMENT-SIGNATURE',
         paymentResponse: 'PAYMENT-RESPONSE',
       },
@@ -759,19 +774,6 @@ function budgetRequestRepresentation(
     },
     links: { self },
   }
-}
-
-function paymentRequiredInput(
-  json: PaymentRequired | undefined,
-  header: string | undefined,
-  hasJsonBody: boolean,
-) {
-  if (hasJsonBody && header) {
-    throw badRequest('Provide PaymentRequired as JSON or PAYMENT-REQUIRED, not both.')
-  }
-  if (!json && !header) throw badRequest('PaymentRequired JSON or PAYMENT-REQUIRED is required.')
-  if (json) return json
-  return decodeX402Header(header!, decodePaymentRequiredHeader, paymentRequiredSchema, 'PAYMENT-REQUIRED')
 }
 
 function paymentResponseInput(
@@ -846,7 +848,8 @@ function constrainOpenApiNetworks(
     | undefined
   const networkSchemas = [
     schemas?.AgentWallet?.properties?.networks?.items?.properties?.network,
-    schemas?.PaymentRequired?.properties?.accepts?.items?.properties?.network,
+    schemas?.PaymentRequirementProblem?.properties?.options?.items?.properties?.requirement
+      ?.properties?.network,
     schemas?.PaymentResult?.properties?.paymentPayload?.properties?.accepted?.properties?.network,
     schemas?.AgentPayment?.properties?.network,
     schemas?.SettlementResponse?.properties?.network,
@@ -904,11 +907,11 @@ function handleError(error: Error, c: Context<AppEnv>) {
   return c.json({ error: 'internal_error', message: 'The request failed.' }, 500)
 }
 
-function selectRequirement(paymentRequired: PaymentRequired, env: Env) {
+function compatibleRequirements(paymentRequired: PaymentRequired, env: Env) {
   const enabled = new Map<string, ReturnType<typeof walletNetworks>[number]>(
     walletNetworks(env).map((network) => [network.id, network]),
   )
-  const accepted = paymentRequired.accepts.find((candidate) => {
+  return paymentRequired.accepts.filter((candidate) => {
     const network = enabled.get(candidate.network)
     if (!network || candidate.scheme !== 'exact') return false
     const asset = walletAsset(network.id).address
@@ -916,20 +919,76 @@ function selectRequirement(paymentRequired: PaymentRequired, env: Env) {
       ? candidate.asset.toLowerCase() === asset.toLowerCase()
       : candidate.asset === asset
   })
-  if (!accepted) {
-    throw badRequest(
-      'No supported exact canonical USDC payment requirement was provided for an enabled network.',
-    )
-  }
-  return accepted
 }
 
-async function hashRequirement(paymentRequired: PaymentRequired) {
-  const normalized = JSON.stringify(paymentRequired, (_, value) => {
-    if (value && typeof value === 'object' && !Array.isArray(value)) {
-      return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))
+async function resolvePaymentRequirement(
+  paymentRequired: PaymentRequired,
+  requestedSelection: string | undefined,
+  env: Env,
+): Promise<
+  | { kind: 'selected'; requirement: PaymentRequirement }
+  | { kind: 'problem'; body: PaymentRequirementProblem }
+> {
+  const compatible = compatibleRequirements(paymentRequired, env)
+  const options = await Promise.all(
+    compatible.map(async (requirement) => ({
+      selectionId: await paymentSelectionId(paymentRequired, requirement),
+      index: paymentRequired.accepts.indexOf(requirement),
+      requirement,
+    })),
+  )
+  if (compatible.length === 0) {
+    return {
+      kind: 'problem',
+      body: {
+        type: `${env.OIDC_AUDIENCE}/problems/no-supported-payment-requirement`,
+        title: 'No supported payment requirement',
+        status: 422,
+        detail: 'No exact canonical USDC requirement is supported on an enabled Wallet network.',
+        options,
+      },
     }
-    return value
+  }
+  if (requestedSelection) {
+    const selected = options.find((option) => option.selectionId === requestedSelection)
+    if (selected) return { kind: 'selected', requirement: selected.requirement }
+  } else if (compatible.length === 1) {
+    return { kind: 'selected', requirement: compatible[0]! }
+  }
+  return {
+    kind: 'problem',
+    body: {
+      type: `${env.OIDC_AUDIENCE}/problems/payment-selection-required`,
+      title: 'Payment selection required',
+      status: 422,
+      detail: requestedSelection
+        ? 'The payment selection is invalid or stale. Choose one of the current options.'
+        : 'Multiple compatible payment requirements are available. Choose one and retry.',
+      options,
+    },
+  }
+}
+
+async function paymentSelectionId(
+  paymentRequired: PaymentRequired,
+  requirement: PaymentRequirement,
+) {
+  return `offer_${(await digestCanonical({ paymentRequired, requirement })).slice(0, 32)}`
+}
+
+async function hashRequirement(
+  paymentRequired: PaymentRequired,
+  requirement: PaymentRequirement,
+) {
+  return digestCanonical({ paymentRequired, requirement })
+}
+
+async function digestCanonical(value: unknown) {
+  const normalized = JSON.stringify(value, (_, nested) => {
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      return Object.fromEntries(Object.entries(nested).sort(([left], [right]) => left.localeCompare(right)))
+    }
+    return nested
   })
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(normalized))
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')

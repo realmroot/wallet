@@ -29,7 +29,7 @@ export const walletModeSchema = z.enum(['production', 'sandbox'])
 export type WalletMode = z.infer<typeof walletModeSchema>
 const printableAscii = /^[\x20-\x7e]+$/
 
-const paymentOptionSchema = z.object({
+export const paymentOptionSchema = z.object({
   scheme: z.string(),
   network: networkId.transform((value) => value as `${string}:${string}`),
   asset: walletAddress,
@@ -136,6 +136,7 @@ export const updateWalletSchema = z
   .openapi('UpdateWallet')
 
 export type PaymentRequired = z.infer<typeof paymentRequiredSchema>
+export type PaymentRequirement = z.infer<typeof paymentOptionSchema>
 export type BudgetDecisionInput = z.infer<typeof budgetDecisionSchema>
 export type UpdateWalletInput = z.infer<typeof updateWalletSchema>
 
@@ -373,6 +374,23 @@ export const paymentResultSchema = z
     replayed: z.boolean(),
   })
   .openapi('PaymentResult')
+
+export const paymentRequirementProblemSchema = z
+  .object({
+    type: z.url(),
+    title: z.string(),
+    status: z.literal(422),
+    detail: z.string(),
+    options: z.array(
+      z.object({
+        selectionId: z.string().regex(/^offer_[0-9a-f]{32}$/),
+        index: z.number().int().nonnegative(),
+        requirement: paymentOptionSchema,
+      }),
+    ),
+  })
+  .openapi('PaymentRequirementProblem')
+export type PaymentRequirementProblem = z.infer<typeof paymentRequirementProblemSchema>
 
 export const agentPaymentSchema = z
   .object({

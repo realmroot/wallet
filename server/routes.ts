@@ -4,7 +4,7 @@ import {
   agentWalletSchema,
   budgetRequestStateSchema,
   createBudgetRequestSchema,
-  paymentRequiredSchema,
+  paymentRequirementProblemSchema,
   paymentResultSchema,
   settlementResponseSchema,
   settlementResultSchema,
@@ -14,6 +14,10 @@ import { createRoute, z } from '@hono/zod-openapi'
 
 const json = <T extends z.ZodType>(schema: T) => ({
   'application/json': { schema },
+})
+
+const problemJson = <T extends z.ZodType>(schema: T) => ({
+  'application/problem+json': { schema },
 })
 
 const badRequestResponse = {
@@ -115,9 +119,14 @@ const idempotencyHeadersSchema = z.object({
 })
 
 const paymentRequiredHeadersSchema = idempotencyHeadersSchema.extend({
-  'payment-required': z.string().min(1).max(64 * 1024).optional().openapi({
+  'payment-required': z.string().min(1).max(64 * 1024).openapi({
     param: { name: 'payment-required', in: 'header' },
-    description: 'Standard x402 Base64-encoded PaymentRequired object.',
+    description: 'Unmodified standard x402 Base64-encoded PaymentRequired header from the resource server.',
+  }),
+  'payment-selection': z.string().regex(/^offer_[0-9a-f]{32}$/).optional().openapi({
+    param: { name: 'payment-selection', in: 'header' },
+    description:
+      'Wallet-specific selection identifier returned by a prior 422 response when multiple compatible payment requirements are available.',
   }),
 })
 
@@ -262,13 +271,9 @@ export const createPaymentAuthorizationRoute = createRoute({
   security: [{ RealmrootOAuth: [] }],
   summary: 'Authorize an x402 payment',
   description:
-    'Pass the unmodified x402 PaymentRequired object as either JSON or the standard PAYMENT-REQUIRED header. On 200, forward the returned PAYMENT-SIGNATURE header to the original business request. On 202, open approvalUrl for the controller, poll the budget request, and retry this operation after approval.',
+    'Pass the unmodified standard PAYMENT-REQUIRED header from the resource server. If multiple compatible requirements exist, choose a selectionId from the 422 response and retry with PAYMENT-SELECTION and the same Idempotency-Key. On 200, forward PAYMENT-SIGNATURE to the original business request. On 202, complete controller approval and retry after approval.',
   request: {
     headers: paymentRequiredHeadersSchema,
-    body: {
-      required: false,
-      content: json(paymentRequiredSchema),
-    },
   },
   responses: {
     200: {
@@ -300,6 +305,11 @@ export const createPaymentAuthorizationRoute = createRoute({
           },
       },
       content: json(budgetRequestStateSchema),
+    },
+    422: {
+      description:
+        'Payment requirement selection is needed, the supplied selection is stale, or no compatible requirement is supported.',
+      content: problemJson(paymentRequirementProblemSchema),
     },
     ...paymentAuthorizationBadRequestResponse,
     ...authenticationResponses,
