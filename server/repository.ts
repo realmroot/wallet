@@ -766,14 +766,18 @@ export async function reservePayment(
 
 export async function completePayment(db: D1Database, paymentId: string, payload: unknown) {
   const serialized = JSON.stringify(payload)
+  const now = new Date().toISOString()
   const result = await db
     .prepare(
       `UPDATE payment
        SET status = 'signed', payment_payload = ?, authorization_expires_at = ?,
-           reservation_expires_at = NULL, updated_at = ?
+           reservation_expires_at = NULL, next_reconciliation_at = ?,
+           reconciliation_lease_until = NULL, reconciliation_lease_id = NULL,
+           reconciliation_failures = 0,
+           last_reconciliation_error = NULL, updated_at = ?
        WHERE id = ? AND status = 'reserved'`,
     )
-    .bind(serialized, paymentAuthorizationExpiry(payload), new Date().toISOString(), paymentId)
+    .bind(serialized, paymentAuthorizationExpiry(payload), now, now, paymentId)
     .run()
   if (result.meta.changes === 1) return
 
@@ -863,37 +867,115 @@ export async function cleanupExpiredReservations(db: D1Database) {
   return stale.results.length
 }
 
-export async function listExpiredSignedPayments(db: D1Database) {
-  return db
+export interface ReconciliationPayment {
+  id: string
+  user_id: string
+  grant_id: string
+  account_id: string
+  network: string
+  amount: string
+  asset: string
+  payment_payload: string
+  authorization_expires_at: string
+  created_at: string
+  wallet_address: string | null
+  reconciliation_failures: number
+  reconciliation_lease_id: string
+}
+
+export async function claimDueSignedPayments(
+  db: D1Database,
+  input: { now: string; leaseUntil: string; limit: number },
+) {
+  const due = await db
     .prepare(
       `SELECT p.id, p.user_id, p.grant_id, p.account_id, p.network, p.amount,
-              p.asset, p.payment_payload, p.created_at, a.address AS wallet_address
+              p.asset, p.payment_payload, p.authorization_expires_at, p.created_at,
+              a.address AS wallet_address, p.reconciliation_failures
        FROM payment p
-       JOIN wallet_account a ON a.id = p.account_id
-       WHERE p.status = 'signed' AND p.authorization_expires_at <= ?
-       ORDER BY p.authorization_expires_at LIMIT 50`,
+       LEFT JOIN wallet_account a ON a.id = p.account_id
+       WHERE p.status = 'signed'
+         AND COALESCE(p.next_reconciliation_at, p.updated_at) <= ?
+         AND (p.reconciliation_lease_until IS NULL OR p.reconciliation_lease_until <= ?)
+       ORDER BY COALESCE(p.next_reconciliation_at, p.updated_at), p.id
+       LIMIT ?`,
     )
-    .bind(new Date().toISOString())
-    .all<{
-      id: string
-      user_id: string
-      grant_id: string
-      account_id: string
-      network: string
-      amount: string
-      asset: string
-      payment_payload: string
-      created_at: string
-      wallet_address: string
-    }>()
+    .bind(input.now, input.now, input.limit)
+    .all<ReconciliationPayment>()
+  if (due.results.length === 0) return []
+
+  const candidates = due.results.map((payment) => ({
+    payment,
+    leaseId: crypto.randomUUID(),
+  }))
+  const claims = await db.batch(
+    candidates.map(({ payment, leaseId }) =>
+      db
+        .prepare(
+          `UPDATE payment
+           SET reconciliation_lease_until = ?, reconciliation_lease_id = ?
+           WHERE id = ? AND status = 'signed'
+             AND COALESCE(next_reconciliation_at, updated_at) <= ?
+             AND (reconciliation_lease_until IS NULL OR reconciliation_lease_until <= ?)`,
+        )
+        .bind(input.leaseUntil, leaseId, payment.id, input.now, input.now),
+    ),
+  )
+  return candidates.flatMap(({ payment, leaseId }, index) =>
+    claims[index]?.meta.changes === 1
+      ? [{ ...payment, reconciliation_lease_id: leaseId }]
+      : [],
+  )
+}
+
+export async function rescheduleSignedPayment(
+  db: D1Database,
+  input: { paymentId: string; leaseId: string; nextAt: string },
+) {
+  const result = await db
+    .prepare(
+      `UPDATE payment
+       SET next_reconciliation_at = ?, reconciliation_lease_until = NULL,
+           reconciliation_lease_id = NULL, reconciliation_failures = 0,
+           last_reconciliation_error = NULL
+       WHERE id = ? AND status = 'signed' AND reconciliation_lease_id = ?`,
+    )
+    .bind(input.nextAt, input.paymentId, input.leaseId)
+    .run()
+  return result.meta.changes === 1
+}
+
+export async function retrySignedPaymentReconciliation(
+  db: D1Database,
+  input: { paymentId: string; leaseId: string; nextAt: string; error: string },
+) {
+  const result = await db
+    .prepare(
+      `UPDATE payment
+       SET next_reconciliation_at = ?, reconciliation_lease_until = NULL,
+           reconciliation_lease_id = NULL,
+           reconciliation_failures = reconciliation_failures + 1,
+           last_reconciliation_error = ?
+       WHERE id = ? AND status = 'signed' AND reconciliation_lease_id = ?`,
+    )
+    .bind(input.nextAt, input.error.slice(0, 500), input.paymentId, input.leaseId)
+    .run()
+  return result.meta.changes === 1
 }
 
 export async function releaseExpiredSignedPayment(
   db: D1Database,
-  input: { paymentId: string; grantId: string; amount: string },
+  input: {
+    paymentId: string
+    userId: string
+    leaseId: string
+    grantId: string
+    amount: string
+    metadata: Record<string, unknown>
+  },
 ) {
   const now = new Date().toISOString()
-  await db.batch([
+  const results = await db.batch([
     db
       .prepare(
         `UPDATE agent_grant
@@ -902,35 +984,107 @@ export async function releaseExpiredSignedPayment(
              updated_at = ?
          WHERE id = ? AND EXISTS (
            SELECT 1 FROM payment WHERE id = ? AND status = 'signed'
+             AND reconciliation_lease_id = ?
          )`,
       )
-      .bind(input.amount, input.amount, now, input.grantId, input.paymentId),
+      .bind(input.amount, input.amount, now, input.grantId, input.paymentId, input.leaseId),
     db
       .prepare(
         `UPDATE payment
          SET status = 'failed', error = 'Signed authorization expired without settlement.',
+             reconciliation_lease_until = NULL, next_reconciliation_at = NULL,
              updated_at = ?
-         WHERE id = ? AND status = 'signed'`,
+         WHERE id = ? AND status = 'signed' AND reconciliation_lease_id = ?`,
       )
-      .bind(now, input.paymentId),
+      .bind(now, input.paymentId, input.leaseId),
+    db
+      .prepare(
+        `INSERT INTO audit_event (
+           id, user_id, actor_kind, actor_subject, action, target_type,
+           target_id, metadata, created_at
+         )
+         SELECT ?, ?, 'system', 'payment-maintenance', 'payment.expired_released',
+                'payment', ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1 FROM payment
+           WHERE id = ? AND status = 'failed'
+             AND error = 'Signed authorization expired without settlement.'
+             AND reconciliation_lease_id = ? AND updated_at = ?
+         )`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        input.userId,
+        input.paymentId,
+        JSON.stringify(input.metadata),
+        now,
+        input.paymentId,
+        input.leaseId,
+        now,
+      ),
+    db
+      .prepare(
+        `UPDATE payment SET reconciliation_lease_id = NULL
+         WHERE id = ? AND status = 'failed' AND reconciliation_lease_id = ?`,
+      )
+      .bind(input.paymentId, input.leaseId),
   ])
+  return results[1]?.meta.changes === 1
 }
 
 export async function markExpiredPaymentSettled(
   db: D1Database,
-  paymentId: string,
-  transactionHash?: string,
+  input: {
+    paymentId: string
+    userId: string
+    leaseId: string
+    transactionHash?: string
+    metadata: Record<string, unknown>
+  },
 ) {
   const now = new Date().toISOString()
-  await db
-    .prepare(
-      `UPDATE payment
-       SET status = 'settled', transaction_hash = COALESCE(?, transaction_hash),
-           settled_at = ?, error = NULL, updated_at = ?
-       WHERE id = ? AND status = 'signed'`,
-    )
-    .bind(transactionHash ?? null, now, now, paymentId)
-    .run()
+  const results = await db.batch([
+    db
+      .prepare(
+        `UPDATE payment
+         SET status = 'settled', transaction_hash = COALESCE(?, transaction_hash),
+             settled_at = ?, error = NULL, reconciliation_lease_until = NULL,
+             next_reconciliation_at = NULL, updated_at = ?
+         WHERE id = ? AND status = 'signed' AND reconciliation_lease_id = ?`,
+      )
+      .bind(input.transactionHash ?? null, now, now, input.paymentId, input.leaseId),
+    db
+      .prepare(
+        `INSERT INTO audit_event (
+           id, user_id, actor_kind, actor_subject, action, target_type,
+           target_id, metadata, created_at
+         )
+         SELECT ?, ?, 'system', 'payment-maintenance', 'payment.reconciled_settled',
+                'payment', ?, ?, ?
+         WHERE EXISTS (
+           SELECT 1 FROM payment
+           WHERE id = ? AND status = 'settled'
+             AND reconciliation_lease_id = ? AND updated_at = ?
+         )`,
+      )
+      .bind(
+        crypto.randomUUID(),
+        input.userId,
+        input.paymentId,
+        JSON.stringify(input.metadata),
+        now,
+        input.paymentId,
+        input.leaseId,
+        now,
+      ),
+    db
+      .prepare(
+        `UPDATE payment SET reconciliation_lease_id = NULL
+         WHERE id = ? AND status = 'settled' AND reconciliation_lease_id = ?`,
+      )
+      .bind(input.paymentId, input.leaseId),
+  ])
+  return results[0]?.meta.changes === 1
 }
 
 export async function getPaymentForSettlement(
@@ -1063,7 +1217,8 @@ export async function settlePayment(
     .prepare(
       `UPDATE payment
        SET status = 'settled', settlement_response = ?, transaction_hash = ?,
-           settled_at = ?, error = NULL, updated_at = ?
+           settled_at = ?, error = NULL, reconciliation_lease_until = NULL,
+           reconciliation_lease_id = NULL, next_reconciliation_at = NULL, updated_at = ?
        WHERE id = ? AND status = 'signed'`,
     )
     .bind(JSON.stringify(response), response.transaction, now, now, paymentId)

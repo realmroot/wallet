@@ -43,7 +43,7 @@ WORLD_SEPOLIA_RPC_URL = "https://worldchain-sepolia.g.alchemy.com/public"
 # are maintained with `wrangler secret put`, not in this file.
 
 [triggers]
-crons = ["*/2 * * * *"]
+crons = ["* * * * *"]
 
 [observability]
 enabled = true
