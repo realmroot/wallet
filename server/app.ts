@@ -3,6 +3,7 @@ import {
   faucetRequestSchema,
   grantActionSchema,
   inspectBudgetRequestSchema,
+  type BudgetRequestState,
   type PaymentRequired,
   type SettlementResponse,
   type WalletRuntime,
@@ -513,7 +514,7 @@ function createAgentApi() {
       )
       if (result.status !== 'pending') return c.json(result, 200)
       setBudgetRequestHeaders(c, result)
-      return c.json(result, 201)
+      return c.json(budgetRequestRepresentation(c.env, result, principal.agent.subject), 201)
     })
     .openapi(getBudgetRequestRoute, async (c) => {
       const principal = await authenticateAgent(
@@ -521,10 +522,12 @@ function createAgentApi() {
         c.env,
         getBudgetRequestRoute.operationId,
       )
-      return c.json(
-        await getBudgetRequestForAgent(c.env.DB, c.req.valid('param').requestId, principal),
-        200,
+      const result = await getBudgetRequestForAgent(
+        c.env.DB,
+        c.req.valid('param').requestId,
+        principal,
       )
+      return c.json(budgetRequestRepresentation(c.env, result, principal.agent.subject), 200)
     })
     .openapi(createPaymentAuthorizationRoute, async (c) => {
       const principal = await authenticateAgent(
@@ -553,7 +556,7 @@ function createAgentApi() {
       )
       if (budget.status !== 'approved') {
         setBudgetRequestHeaders(c, budget)
-        return c.json(budget, 202)
+        return c.json(budgetRequestRepresentation(c.env, budget, principal.agent.subject), 202)
       }
 
       await validatePaymentRecipient(c.env, accepted.network, accepted.payTo)
@@ -732,6 +735,30 @@ function setBudgetRequestHeaders(
   if (!request.requestId) throw new Error('A pending budget request must have a request ID.')
   c.header('Location', `${c.env.OIDC_AUDIENCE}/agent/budget-requests/${request.requestId}`)
   c.header('Retry-After', String(request.pollIntervalSeconds ?? 3))
+  c.header('Link', '<https://realmroot.dev/profiles/interactive-resource>; rel="profile"')
+}
+
+function budgetRequestRepresentation(
+  env: Env,
+  request: BudgetRequestState,
+  agentId: string,
+): BudgetRequestState {
+  if (!request.requestId) return request
+  const self = `${env.OIDC_AUDIENCE}/agent/budget-requests/${request.requestId}`
+  const interactionStatus: NonNullable<BudgetRequestState['interaction']>['status'] =
+    request.status === 'approved' ? 'completed' : request.status
+  return {
+    ...request,
+    id: request.requestId,
+    agentId,
+    interaction: {
+      type: 'user-approval' as const,
+      status: interactionStatus,
+      ...(request.approvalUrl ? { url: request.approvalUrl } : {}),
+      ...(request.status === 'pending' ? { expiresAt: request.expiresAt } : {}),
+    },
+    links: { self },
+  }
 }
 
 function paymentRequiredInput(

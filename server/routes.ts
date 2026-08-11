@@ -159,7 +159,11 @@ export const createBudgetRequestRoute = createRoute({
         'Retry-After': {
           description: 'Recommended polling delay in seconds.',
           schema: { type: 'string', pattern: '^\\d+$' },
-        },
+          },
+          Link: {
+            description: 'RFC 8288 profile link declaring a controller-interactive Resource.',
+            schema: { type: 'string' },
+          },
       },
       content: json(budgetRequestStateSchema),
     },
@@ -289,7 +293,11 @@ export const createPaymentAuthorizationRoute = createRoute({
         'Retry-After': {
           description: 'Recommended polling delay in seconds.',
           schema: { type: 'string', pattern: '^\\d+$' },
-        },
+          },
+          Link: {
+            description: 'RFC 8288 profile link declaring a controller-interactive Resource.',
+            schema: { type: 'string' },
+          },
       },
       content: json(budgetRequestStateSchema),
     },

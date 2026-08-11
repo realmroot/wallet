@@ -701,17 +701,32 @@ describe('Agent Wallet', () => {
       /^https:\/\/wallet\.test\/api\/agent\/budget-requests\/[0-9a-f-]+$/,
     )
     expect(request.headers.get('retry-after')).toBe('3')
+    expect(request.headers.get('link')).toContain(
+      '<https://realmroot.dev/profiles/interactive-resource>; rel="profile"',
+    )
     const pending = await request.json<{
       requestId: string
+      id: string
+      agentId: string
       budgetId: null
       status: string
       approvalUrl: string
       pollIntervalSeconds: number
+      interaction: { type: string; status: string; url: string }
+      links: { self: string }
     }>()
     expect(pending.status).toBe('pending')
+    expect(pending.id).toBe(pending.requestId)
+    expect(pending.agentId).toBe(agentSubject)
     expect(pending.budgetId).toBeNull()
     expect(pending.pollIntervalSeconds).toBe(3)
     expect(pending.approvalUrl).toContain('/authorize#request=')
+    expect(pending.interaction).toMatchObject({
+      type: 'user-approval',
+      status: 'pending',
+      url: pending.approvalUrl,
+    })
+    expect(pending.links.self).toBe(request.headers.get('location'))
 
     const decision = await approveBudget(token, pending)
     expect(decision.status, await decision.clone().text()).toBe(200)
@@ -723,6 +738,8 @@ describe('Agent Wallet', () => {
       requestId: pending.requestId,
       budgetId: expect.any(String),
       status: 'approved',
+      interaction: { type: 'user-approval', status: 'completed' },
+      links: { self: expect.stringContaining(`/agent/budget-requests/${pending.requestId}`) },
     })
 
     const existing = await createBudgetRequest(agentToken)

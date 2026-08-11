@@ -144,6 +144,8 @@ export type BudgetRequestStatus = z.infer<typeof budgetRequestStatusSchema>
 
 export const budgetRequestStateSchema = z
   .object({
+    id: resourceId.optional(),
+    agentId: z.string().optional(),
     requestId: resourceId.nullable(),
     budgetId: resourceId.nullable(),
     mode: walletModeSchema,
@@ -151,6 +153,15 @@ export const budgetRequestStateSchema = z
     expiresAt: z.iso.datetime(),
     approvalUrl: z.url().optional(),
     pollIntervalSeconds: z.number().int().positive().optional(),
+    interaction: z
+      .object({
+        type: z.literal('user-approval'),
+        status: z.enum(['pending', 'completed', 'denied', 'expired', 'failed']),
+        url: z.url().optional(),
+        expiresAt: z.iso.datetime().optional(),
+      })
+      .optional(),
+    links: z.object({ self: z.url() }).optional(),
   })
   .openapi('BudgetRequest')
 export type BudgetRequestState = z.infer<typeof budgetRequestStateSchema>
