@@ -81,6 +81,19 @@ const payloadTooLargeResponse = {
   },
 } as const
 
+const tooEarlyResponse = {
+  425: {
+    description: 'The settlement transaction is not confirmed yet; retry after the indicated delay.',
+    headers: {
+      'Retry-After': {
+        description: 'Seconds to wait before retrying settlement confirmation.',
+        schema: { type: 'string' },
+      },
+    },
+    content: json(apiErrorSchema),
+  },
+} as const
+
 const upstreamResponse = {
   502: {
     description: 'An upstream wallet or network service failed.',
@@ -231,6 +244,7 @@ export const confirmPaymentSettlementRoute = createRoute({
     ...authenticationResponses,
     ...notFoundResponse,
     ...conflictResponse,
+    ...tooEarlyResponse,
     ...payloadTooLargeResponse,
     ...upstreamResponse,
     ...internalErrorResponse,

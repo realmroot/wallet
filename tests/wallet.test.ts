@@ -6,7 +6,11 @@ import {
   isInactiveDelegationError,
   walletAsset,
 } from '../server/cdp'
-import { hasMatchingSolanaTransfer, hasMatchingUsdcTransfer } from '../server/settlement'
+import {
+  hasMatchingSolanaTransfer,
+  hasMatchingUsdcTransfer,
+  verifySettlement,
+} from '../server/settlement'
 import { walletNetworkDefinition, walletNetworkIds, walletNetworks } from '../server/network'
 import {
   appendPaymentIdentifier,
@@ -198,6 +202,39 @@ describe('Agent Wallet', () => {
     expect(hasMatchingSolanaTransfer(transaction, { ...payment, amount: '25001' })).toBe(false)
   })
 
+  it('reports an unconfirmed settlement as retryable instead of an upstream failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(JSON.stringify({ jsonrpc: '2.0', id: 1, result: null }), {
+        headers: { 'content-type': 'application/json' },
+      }),
+    )
+
+    await expect(
+      verifySettlement(
+        { ...env, SIGNER_MODE: 'cdp' } as unknown as Env,
+        {
+          asset: getDefaultAsset('eip155:84532').address,
+          amount: '25000',
+          network: 'eip155:84532',
+          pay_to: '0x0000000000000000000000000000000000000001',
+          status: 'signed',
+          transaction_hash: null,
+          wallet_address: walletAddress,
+        },
+        {
+          success: true,
+          payer: walletAddress,
+          transaction: `0x${'ab'.repeat(32)}`,
+          network: 'eip155:84532',
+        },
+      ),
+    ).rejects.toMatchObject({
+      status: 425,
+      code: 'settlement_pending',
+      headers: { 'Retry-After': '3' },
+    })
+  })
+
   it('registers mainnet and Sandbox networks in one Wallet service', () => {
     expect(walletNetworks(walletBindings(env)).map((network) => network.id)).toEqual(walletNetworkIds)
     expect(walletNetworkDefinition('eip155:8453').mode).toBe('production')
@@ -365,6 +402,9 @@ describe('Agent Wallet', () => {
     const root = await SELF.fetch('https://wallet.test/api')
     expect(root.status).toBe(200)
     expect(root.headers.get('link')).toContain('https://wallet.test/api/openapi.json')
+    expect(root.headers.get('link')).toContain(
+      '<https://wallet.test/api/workflows.arazzo.json>; rel="describedby"; type="application/vnd.oai.workflows+json"',
+    )
     expect(root.headers.get('x-request-id')).toBeTruthy()
     expect(await root.json()).toMatchObject({
       openapi: '3.1.0',
@@ -390,6 +430,10 @@ describe('Agent Wallet', () => {
     }>()
     expect(document).toMatchObject({
       openapi: '3.1.0',
+      externalDocs: {
+        description: 'Machine-readable API workflows (Arazzo 1.1)',
+        url: '/workflows.arazzo.json',
+      },
       'x-x402': {
         role: 'payer',
         paymentOperationId: 'createPaymentAuthorization',
@@ -485,6 +529,46 @@ describe('Agent Wallet', () => {
         },
       },
     })
+
+    const workflowResponse = await SELF.fetch('https://wallet.test/api/workflows.arazzo.json')
+    expect(workflowResponse.status).toBe(200)
+    expect(workflowResponse.headers.get('content-type')).toBe(
+      'application/vnd.oai.workflows+json; version=1.1.0',
+    )
+    const workflows = await workflowResponse.json<{
+      arazzo: string
+      $self: string
+      sourceDescriptions: Array<{ name: string; url: string; type: string }>
+      workflows: Array<{
+        workflowId: string
+        steps: Array<{
+          operationId: string
+          parameters?: Array<{ name: string; in: string; value: string }>
+          outputs?: Record<string, string>
+        }>
+      }>
+    }>()
+    expect(workflows).toMatchObject({
+      arazzo: '1.1.0',
+      $self: 'https://wallet.test/api/workflows.arazzo.json',
+      sourceDescriptions: [{ name: 'payer', url: './openapi.json', type: 'openapi' }],
+    })
+    expect(workflows.workflows.map((workflow) => workflow.workflowId)).toEqual([
+      'authorizeX402Payment',
+      'authorizeSelectedX402Payment',
+      'confirmX402Payment',
+    ])
+    expect(
+      workflows.workflows.flatMap((workflow) => workflow.steps).map((step) => step.operationId),
+    ).toEqual([
+      'createPaymentAuthorization',
+      'createPaymentAuthorization',
+      'confirmPaymentSettlement',
+      'getPayment',
+    ])
+    expect(workflows.workflows[0]?.steps[0]?.outputs?.paymentSignature).toBe(
+      '$response.header.PAYMENT-SIGNATURE',
+    )
     const paymentOperation = (document.paths['/x402/payments'] as {
       post: {
         requestBody?: unknown
@@ -937,6 +1021,12 @@ describe('Agent Wallet', () => {
     expect(body.updatedAt).toEqual(expect.any(String))
     expect(body).not.toHaveProperty('paymentPayload')
     expect(body).not.toHaveProperty('idempotencyKey')
+    const reconciliation = await env.DB.prepare(
+      'SELECT authorization_expires_at, next_reconciliation_at FROM payment WHERE id = ?',
+    )
+      .bind(payment.paymentId)
+      .first<{ authorization_expires_at: string; next_reconciliation_at: string }>()
+    expect(reconciliation?.next_reconciliation_at).toBe(reconciliation?.authorization_expires_at)
 
     const missingUrl = `${walletUrl}/${crypto.randomUUID()}`
     const missing = await SELF.fetch(missingUrl, {
@@ -958,7 +1048,7 @@ describe('Agent Wallet', () => {
         url: 'https://merchant.test/weather',
         description: 'Paid test weather',
         mimeType: 'application/json',
-        serviceName: 'ZPan Cloud',
+        serviceName: 'Paid Storage',
         tags: ['storage', 'upload'],
         iconUrl: 'https://merchant.test/icon.svg',
       },

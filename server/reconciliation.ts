@@ -47,7 +47,7 @@ interface ReconciliationDependencies {
   ) => Promise<ReconciliationResult>
 }
 
-export async function reconcileSignedPayments(
+export async function reconcileExpiredAuthorizations(
   env: Env,
   dependencies: ReconciliationDependencies = {},
 ): Promise<ReconciliationSummary> {
@@ -81,7 +81,7 @@ export async function reconcileSignedPayments(
   return summary
 }
 
-export const reconcileExpiredAuthorizations = reconcileSignedPayments
+export const reconcileSignedPayments = reconcileExpiredAuthorizations
 
 async function reconcilePayment(
   env: Env,

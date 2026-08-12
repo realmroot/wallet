@@ -1,12 +1,18 @@
 import type { SettlementResponse } from '../shared/contracts'
-import { ApiError, badRequest, conflict, upstreamError } from './errors'
+import { ApiError, badRequest, conflict, tooEarly, upstreamError } from './errors'
 import {
   walletChain,
   walletNetworkDefinition,
   walletNetworkName,
   walletNetworkRpcUrl,
 } from './network'
-import { createPublicClient, decodeEventLog, erc20Abi, http } from 'viem'
+import {
+  createPublicClient,
+  decodeEventLog,
+  erc20Abi,
+  http,
+  TransactionReceiptNotFoundError,
+} from 'viem'
 
 interface ExpectedSettlement {
   network: string
@@ -53,6 +59,11 @@ export async function verifySettlement(
     }
   } catch (error) {
     if (error instanceof ApiError) throw error
+    if (error instanceof TransactionReceiptNotFoundError) {
+      throw tooEarly(
+        `The settlement transaction is not confirmed on ${walletNetworkName(payment.network)}.`,
+      )
+    }
     throw upstreamError(
       `The settlement transaction is not confirmed on ${walletNetworkName(payment.network)}.`,
     )
@@ -84,7 +95,7 @@ async function verifySolanaSettlement(
     'getTransaction',
     [signature, { encoding: 'jsonParsed', commitment: 'confirmed', maxSupportedTransactionVersion: 0 }],
   )
-  if (!result) throw upstreamError('The Solana settlement transaction is not confirmed.')
+  if (!result) throw tooEarly('The Solana settlement transaction is not confirmed.')
   if (result.meta?.err) throw badRequest('The Solana settlement transaction failed.')
   if (!hasMatchingSolanaTransfer(result, payment)) {
     throw badRequest('The settlement transaction has no matching USDC transfer.')

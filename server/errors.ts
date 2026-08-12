@@ -19,6 +19,10 @@ export const forbidden = (message: string, headers?: HeadersInit) =>
   new ApiError(403, 'forbidden', message, headers)
 export const badRequest = (message: string) => new ApiError(400, 'bad_request', message)
 export const conflict = (message: string) => new ApiError(409, 'conflict', message)
+export const tooEarly = (message: string, retryAfterSeconds = 3) =>
+  new ApiError(425, 'settlement_pending', message, {
+    'Retry-After': String(retryAfterSeconds),
+  })
 export const notFound = (message: string) => new ApiError(404, 'not_found', message)
 export const upstreamError = (
   message: string,

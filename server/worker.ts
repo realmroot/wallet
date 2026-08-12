@@ -1,6 +1,6 @@
 import { createApp } from './app'
 import { walletBindings } from './runtime-config'
-import { reconcileSignedPayments } from './reconciliation'
+import { reconcileExpiredAuthorizations } from './reconciliation'
 import { cleanupExpiredReservations } from './repository'
 
 const app = createApp()
@@ -13,7 +13,7 @@ export default {
     ctx.waitUntil(
       Promise.all([
         cleanupExpiredReservations(env.DB),
-        reconcileSignedPayments(walletBindings(env)),
+        reconcileExpiredAuthorizations(walletBindings(env)),
       ]).then(([cleaned, reconciliation]) => {
         if (cleaned === 0 && reconciliation.claimed === 0) return
         console.log(

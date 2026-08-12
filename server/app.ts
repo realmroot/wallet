@@ -90,6 +90,7 @@ import { bodyLimit } from 'hono/body-limit'
 import { cors } from 'hono/cors'
 import { requestId } from 'hono/request-id'
 import { secureHeaders } from 'hono/secure-headers'
+import { ARAZZO_DOCUMENT_PATH, ARAZZO_MEDIA_TYPE, createArazzoDocument } from './arazzo'
 
 type AppEnv = {
   Bindings: Env
@@ -167,7 +168,7 @@ function createApi(agentApi: ReturnType<typeof createAgentApi>) {
   api.use('*', async (c, next) => {
     c.header(
       'Link',
-      `<${openApiUrl(c.env)}>; rel="service-desc"; type="application/openapi+json"`,
+      `<${openApiUrl(c.env)}>; rel="service-desc"; type="application/openapi+json", <${workflowUrl(c.env)}>; rel="describedby"; type="application/vnd.oai.workflows+json"`,
     )
     await next()
   })
@@ -704,6 +705,11 @@ function createAgentApi() {
   routes.get('/openapi.json', (c) =>
     c.json(agentApiOpenApi(api, c.env)),
   )
+  routes.get(ARAZZO_DOCUMENT_PATH, (c) => {
+    const response = c.json(createArazzoDocument(c.env.OIDC_AUDIENCE), 200)
+    response.headers.set('Content-Type', ARAZZO_MEDIA_TYPE)
+    return response
+  })
   routes.onError(handleError)
   return api
 }
@@ -718,6 +724,10 @@ function agentApiDocument() {
         'A DPoP-protected x402 payer for delegated Agents. Inspect the delegated Wallet, request a budget, authorize payments, and confirm merchant settlements.',
     },
     servers: [{ url: '.' }],
+    externalDocs: {
+      description: 'Machine-readable API workflows (Arazzo 1.1)',
+      url: ARAZZO_DOCUMENT_PATH,
+    },
     tags: [
       { name: 'wallet', description: 'Inspect the Wallet delegated to the current Agent.' },
       { name: 'budget', description: 'Request and track controller-approved spending budgets.' },
@@ -1018,6 +1028,10 @@ function requiredConfiguration(env: Env) {
 
 function openApiUrl(env: Env) {
   return `${env.OIDC_AUDIENCE}/openapi.json`
+}
+
+function workflowUrl(env: Env) {
+  return `${env.OIDC_AUDIENCE}${ARAZZO_DOCUMENT_PATH}`
 }
 
 function checkDatabaseReadiness(env: Env) {

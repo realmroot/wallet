@@ -767,6 +767,8 @@ export async function reservePayment(
 export async function completePayment(db: D1Database, paymentId: string, payload: unknown) {
   const serialized = JSON.stringify(payload)
   const now = new Date().toISOString()
+  const authorizationExpiresAt = paymentAuthorizationExpiry(payload)
+  if (!authorizationExpiresAt) throw new Error('Signed payment has no valid authorization expiration.')
   const result = await db
     .prepare(
       `UPDATE payment
@@ -777,7 +779,7 @@ export async function completePayment(db: D1Database, paymentId: string, payload
            last_reconciliation_error = NULL, updated_at = ?
        WHERE id = ? AND status = 'reserved'`,
     )
-    .bind(serialized, paymentAuthorizationExpiry(payload), now, now, paymentId)
+    .bind(serialized, authorizationExpiresAt, authorizationExpiresAt, now, paymentId)
     .run()
   if (result.meta.changes === 1) return
 

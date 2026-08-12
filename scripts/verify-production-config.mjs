@@ -98,8 +98,8 @@ if (
 ) {
   errors.push('The DB binding must use a real D1 database_id.')
 }
-if (!config.triggers?.crons?.includes('*/2 * * * *')) {
-  errors.push('The two-minute payment reconciliation schedule must be configured.')
+if (!config.triggers?.crons?.includes('*/5 * * * *')) {
+  errors.push('The five-minute expired-authorization reconciliation schedule must be configured.')
 }
 
 if (errors.length > 0) {
