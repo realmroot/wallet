@@ -14,15 +14,15 @@ run_worker_first = ["/api", "/api/*", "/.well-known/oauth-protected-resource/*",
 
 [[d1_databases]]
 binding = "DB"
-database_name = "agent-wallet-production"
-database_id = "1f757b8a-f79d-40cf-be1f-c51cf80424b4"
+database_name = "wallet"
+database_id = "391247b6-86fd-49b2-8191-829a79ff6223"
 migrations_dir = "./migrations"
 
 [vars]
 # Public application identity.
 APP_ORIGIN = "https://wallet.realmroot.dev"
 OIDC_ISSUER = "https://id.realmroot.dev/api/auth"
-OIDC_CLIENT_ID = "client_87c987abcddf4bb1b283794d626a0f43"
+OIDC_CLIENT_ID = "019ff41f-c1bf-732e-8ebf-69aa80eafce7"
 CDP_PROJECT_ID = "16529c0d-6329-4510-83bc-66623d5292da"
 CDP_API_KEY_ID = "00130afb-da82-4fd0-9017-e5be16969d50"
 
