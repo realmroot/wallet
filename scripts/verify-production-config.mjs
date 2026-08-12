@@ -6,6 +6,13 @@ const errors = []
 const variables = config.vars ?? {}
 const productionDatabase = config.d1_databases?.find((binding) => binding.binding === 'DB')
 
+if (config.name !== 'agent-wallet') {
+  errors.push('The production Worker name must be agent-wallet.')
+}
+if (productionDatabase?.database_name !== config.name) {
+  errors.push('The production D1 database name must match the Worker name.')
+}
+
 for (const name of [
   'APP_ORIGIN',
   'OIDC_ISSUER',
