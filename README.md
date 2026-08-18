@@ -20,7 +20,7 @@ one deployment and one D1 database. No application smart contract is required.
 - The browser uses Authorization Code + PKCE with any compatible OIDC provider.
 - Browser tokens are stored in `localStorage`; Agent Wallet has no login cookie or server session.
 - The Worker validates human access tokens against the configured OIDC issuer/JWKS and keys users by `(iss, sub)`.
-- Realmroot is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer. The Agent token's top-level `sub` is the authorizing user, its RFC 8693 `act` identifies the stable Agent with `sub_profile: ai_agent`, and `cnf.jkt` binds the token to DPoP. The Wallet resolves the issuer's discovered `agent_profile_uri_template` for the Agent's public name and picture.
+- Realmroot is optional. When used as the authorization server for Agent Wallet's `native` API Resource mode, browser and Agent tokens share one issuer. The Agent token's top-level `sub` is the authorizing user, its RFC 8693 `act.iss` and `act.sub` identify the stable Agent, and `cnf.jkt` binds the token to DPoP. The Wallet resolves the issuer's discovered `agent_profile_uri_template` for the Agent's public name and picture.
 - Every Agent payment request requires a fresh DPoP proof. Replayed proofs are rejected.
 - The API publishes RFC 9728 Protected Resource Metadata at
   `/.well-known/oauth-protected-resource/api`. Authentication challenges link

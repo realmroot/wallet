@@ -25,6 +25,8 @@ export interface AgentPrincipal {
   scopes: string[]
 }
 
+const realmrootCliClientId = 'realmroot-cli'
+
 function bearer(request: Request, scheme: 'Bearer' | 'DPoP') {
   const value = request.headers.get('authorization')
   const match = value?.match(new RegExp(`^${scheme}\\s+(.+)$`, 'i'))
@@ -82,6 +84,9 @@ export async function authenticateAgent(
     throw agentUnauthorized('Agent access token is invalid.')
   })
   if (protectedHeader.typ !== 'at+jwt') throw agentUnauthorized('Agent access token type is invalid.')
+  if (payload.client_id !== realmrootCliClientId) {
+    throw agentUnauthorized('Agent access token client is invalid.')
+  }
 
   const grantedScopes = scopes(payload)
   if (!grantedScopes.includes(requiredScope)) {
@@ -135,17 +140,10 @@ async function discoverKeySet(issuer: string) {
 }
 
 function resolveRealmrootAgent(payload: JWTPayload, issuer: string) {
-  const agent = payload.act as
-    | {
-        iss?: unknown
-        sub?: unknown
-        sub_profile?: unknown
-      }
-    | undefined
+  const agent = payload.act as { iss?: unknown; sub?: unknown } | undefined
   if (
     agent?.iss !== issuer ||
-    typeof agent.sub !== 'string' ||
-    agent.sub_profile !== 'ai_agent'
+    typeof agent.sub !== 'string'
   ) {
     throw agentUnauthorized('A delegated Realmroot Agent access token is required.')
   }
