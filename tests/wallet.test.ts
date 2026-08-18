@@ -1581,14 +1581,14 @@ describe('Agent Wallet', () => {
     expect(response.headers.get('www-authenticate')).toContain('invalid_token')
   })
 
-  it('rejects an Agent actor without the ai_agent subject profile', async () => {
+  it('rejects an Agent actor from a different issuer', async () => {
     const token = await humanToken()
     await provisionAndGrant(token)
     const agentToken = await createAgentToken(
       true,
       ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
       audience,
-      'person',
+      'https://untrusted.example/api/auth',
     )
 
     const response = await pay(agentToken, paymentRequired('25000'))
@@ -1597,6 +1597,26 @@ describe('Agent Wallet', () => {
     expect(await response.json()).toMatchObject({
       error: 'unauthorized',
       message: 'A delegated Realmroot Agent access token is required.',
+    })
+  })
+
+  it('rejects an Agent token issued to a different client', async () => {
+    const token = await humanToken()
+    await provisionAndGrant(token)
+    const agentToken = await createAgentToken(
+      true,
+      ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
+      audience,
+      agentIssuer,
+      'another-client',
+    )
+
+    const response = await pay(agentToken, paymentRequired('25000'))
+
+    expect(response.status).toBe(401)
+    expect(await response.json()).toMatchObject({
+      error: 'unauthorized',
+      message: 'Agent access token client is invalid.',
     })
   })
 
@@ -1635,17 +1655,18 @@ async function createAgentToken(
   delegated = true,
   grantedScopes = ['wallet:read', 'wallet:budget:request', 'wallet:x402:pay'],
   tokenAudience = audience,
-  subjectProfile = 'ai_agent',
+  actorIssuer = agentIssuer,
+  clientId = 'realmroot-cli',
 ) {
   const thumbprint = await calculateJwkThumbprint(dpopPublicJwk)
   return new SignJWT({
+    client_id: clientId,
     scope: grantedScopes.join(' '),
     cnf: { jkt: thumbprint },
     act: delegated
       ? {
-          iss: agentIssuer,
+          iss: actorIssuer,
           sub: agentSubject,
-          sub_profile: subjectProfile,
         }
       : undefined,
   })
