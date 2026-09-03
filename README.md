@@ -106,20 +106,18 @@ which of those can authorize payments. The checked-in configuration enables
 all three Sandbox networks. Mainnet payment signing remains disabled until its
 sequential Base → Polygon → Arbitrum → World → Solana rollout is approved.
 
-## Agent API flow
+## Agent access
 
 Agent Wallet does not ship a product-specific CLI. Its single discovery root
 is `/api`, with an explicit OpenAPI 3.1 contract at `/api/openapi.json`. The API
 advertises that contract with an RFC 8631 `service-desc` link and publishes its
 OAuth authorization-server, scope, bearer-header, and DPoP capabilities through
-RFC 9728 Protected Resource Metadata. Restish or
-another Agent HTTP client discovers the operations directly:
+RFC 9728 Protected Resource Metadata.
 
-```sh
-restish api connect agent-wallet https://wallet.realmroot.dev/api --replace --yes
-restish api set agent-wallet 'command_layout: tags'
-restish agent-wallet --help
-```
+Agents should open Agent Wallet in Realmroot Toolbox. Toolbox discovers the
+Skill advertised by this Resource Server and provides installation guidance for
+the detected Agent runtime. Install that Skill and follow its instructions; this
+README intentionally does not duplicate its commands.
 
 The generated request schemas use one stable set of platform-supported network
 identifiers. A budget request includes `mode: production | sandbox`; an x402
@@ -127,49 +125,35 @@ payment identifies its chain with the standard network ID. The server derives
 the payment mode from that network and applies only the matching grant.
 
 The document declares one standard Realmroot OAuth security scheme with
-operation-specific scopes and `x-dpop-required: true`. Restish can bind a
-Realmroot credential source to that scheme without Resource Server-specific
-authentication configuration.
+operation-specific scopes and `x-dpop-required: true`, allowing Realmroot to
+bind the Agent identity, target access token, and grant-specific DPoP key
+without Resource Server-specific authentication configuration.
 
-This produces a compact, resource-oriented command surface:
-
-```text
-restish agent-wallet wallet show
-restish agent-wallet budget request --mode sandbox
-restish agent-wallet budget status <request-id>
-restish agent-wallet payment authorize <idempotency-key> --payment-required <value>
-restish agent-wallet payment status <payment-id>
-restish agent-wallet payment confirm <payment-id> --payment-response <value>
-```
-
-Before requesting a signature, an Agent can run `restish agent-wallet wallet show` (the
-`GET /agent/wallet` operation) to read its mode-scoped delegated budgets plus
+Before requesting a signature, an Agent can inspect its wallet to read its
+mode-scoped delegated budgets plus
 per-network account, readiness, blockers, and maximum payable atomic USDC
 amount. The response does not
 expose the controller profile, CDP user identifier, wallet balance, or direct
 database state.
 
-Realmroot's Restish adapter owns the Agent identity, target access token, and
-grant-specific DPoP key. The Agent calls its original business API and forwards
-the `PAYMENT-REQUIRED` response header to
-`restish agent-wallet payment authorize`, together with a stable
-`Idempotency-Key`. `PaymentRequired` must come from that header; request bodies
-are not part of this operation's contract. When the header contains multiple
-compatible requirements, the Wallet returns `422`
+The Agent calls its original business API and asks the Wallet to authorize the
+`PAYMENT-REQUIRED` response header together with a stable `Idempotency-Key`.
+`PaymentRequired` must come from that header; request bodies are not part of
+this operation's contract. When the header contains multiple compatible
+requirements, the Wallet returns `422`
 with the available `selectionId` values without creating a payment or consuming
 budget. The Agent chooses one and repeats the same request with
-`--payment-selection <selection-id>` and the same idempotency key. It completes
-controller budget approval when the Wallet returns `202`, then retries the
-business request with the Wallet's returned `PAYMENT-SIGNATURE` header.
+the chosen selection and the same idempotency key. It completes controller
+budget approval when the Wallet returns `202`, then retries the business request
+with the Wallet's returned `PAYMENT-SIGNATURE` header.
 
 After the business request succeeds, the Agent forwards its
-`PAYMENT-RESPONSE` header to `restish agent-wallet payment confirm`. The Wallet
+`PAYMENT-RESPONSE` header to the Wallet for confirmation. The Wallet
 verifies a successful EVM ERC-20 or Solana SPL receipt contains the exact
 canonical USDC transfer from the user's account to the requested merchant
 before marking the payment settled.
-At any point the Agent can recover the current state through
-`restish agent-wallet payment status` without access to Wallet storage or
-signature material.
+At any point the Agent can recover the current payment state without access to
+Wallet storage or signature material.
 Reusing the same idempotency key returns the same signed payload without
 charging the Agent budget twice; a different business purchase uses a new key.
 
